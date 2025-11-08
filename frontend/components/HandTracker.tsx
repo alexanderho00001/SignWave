@@ -48,6 +48,8 @@ export default function HandTracker() {
         body: JSON.stringify({ image: imageData }),
       });
 
+      console.log(response);
+
       const data = await response.json();
       setHandData(data.hands);
       
