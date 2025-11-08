@@ -1,7 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,7 +48,7 @@ export default function LoginPage() {
         throw new Error(data.detail || "Login failed");
       }
 
-      router.push("/progress");
+      router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Something went wrong");
     } finally {
@@ -44,180 +57,70 @@ export default function LoginPage() {
   }
 
   return (
-    <main
-      style={{
-        backgroundColor: "white",
-        minHeight: "100vh",
-        fontFamily: "system-ui, sans-serif",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        color: "#1a1a1a", // darker base text color
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 400,
-          padding: "2rem",
-          borderRadius: "8px",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-        }}
-      >
-        <h1
-          style={{
-            marginBottom: "1rem",
-            textAlign: "center",
-            color: "#111", // near-black heading
-            fontWeight: 700,
-          }}
-        >
-          Welcome back to SignWave
-        </h1>
+    <main className="flex min-h-screen w-full items-center justify-center bg-background px-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-1 text-center">
+          <CardTitle className="text-2xl font-semibold">
+            Welcome back to SignWave
+          </CardTitle>
+          <CardDescription>
+            Log in to continue your ASL practice.
+          </CardDescription>
+        </CardHeader>
 
-        <p
-          style={{
-            marginBottom: "2rem",
-            textAlign: "center",
-            color: "#333", // dark gray for subtitle
-          }}
-        >
-          Log in to continue your ASL practice.
-        </p>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                name="username"
+                value={formData.username}
+                onChange={handleChange}
+                autoComplete="username"
+                required
+                disabled={loading}
+              />
+            </div>
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: "1.5rem" }}>
-            <label
-              htmlFor="username"
-              style={{
-                fontWeight: 600,
-                color: "#111",
-              }}
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                value={formData.password}
+                onChange={handleChange}
+                autoComplete="current-password"
+                required
+                disabled={loading}
+              />
+            </div>
+
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Logging in..." : "Log in"}
+            </Button>
+
+            {error && (
+              <p className="text-center text-sm text-destructive">
+                {error}
+              </p>
+            )}
+          </form>
+        </CardContent>
+
+        <CardFooter className="justify-center">
+          <p className="text-sm text-muted-foreground">
+            Don't have an account?{" "}
+            <Link
+              href="/register"
+              className="font-medium text-primary underline-offset-4 hover:underline"
             >
-              Username
-            </label>
-            <input
-              id="username"
-              name="username"
-              value={formData.username}
-              onChange={handleChange}
-              required
-              style={{
-                width: "100%",
-                padding: "10px",
-                borderRadius: "6px",
-                border: "1px solid #bbb",
-                outline: "none",
-                marginTop: "4px",
-                transition: "border-color 0.2s, box-shadow 0.2s",
-                color: "#111", // darker text in box
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = "#0070f3";
-                e.target.style.boxShadow = "0 0 0 2px rgba(0,118,255,0.2)";
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = "#bbb";
-                e.target.style.boxShadow = "none";
-              }}
-            />
-          </div>
-
-          <div style={{ marginBottom: "1.5rem" }}>
-            <label
-              htmlFor="password"
-              style={{
-                fontWeight: 600,
-                color: "#111",
-              }}
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              value={formData.password}
-              onChange={handleChange}
-              required
-              style={{
-                width: "100%",
-                padding: "10px",
-                borderRadius: "6px",
-                border: "1px solid #bbb",
-                outline: "none",
-                marginTop: "4px",
-                transition: "border-color 0.2s, box-shadow 0.2s",
-                color: "#111",
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = "#0070f3";
-                e.target.style.boxShadow = "0 0 0 2px rgba(0,118,255,0.2)";
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = "#bbb";
-                e.target.style.boxShadow = "none";
-              }}
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: "10px",
-              borderRadius: "6px",
-              backgroundColor: "#0070f3",
-              color: "white",
-              fontWeight: 600,
-              border: "none",
-              cursor: "pointer",
-              transition: "background-color 0.2s",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.backgroundColor = "#0059c1")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.backgroundColor = "#0070f3")
-            }
-          >
-            {loading ? "Logging in..." : "Log in"}
-          </button>
-        </form>
-
-        {error && (
-          <p
-            style={{
-              color: "red",
-              marginTop: "1rem",
-              textAlign: "center",
-            }}
-          >
-            {error}
+              Register here
+            </Link>
           </p>
-        )}
-
-        <p
-          style={{
-            marginTop: "2rem",
-            textAlign: "center",
-            color: "#222",
-          }}
-        >
-          Don’t have an account?{" "}
-          <a
-            href="/register"
-            style={{
-              color: "#0059c1",
-              textDecoration: "none",
-              fontWeight: 600,
-            }}
-          >
-            Register here
-          </a>
-        </p>
-      </div>
+        </CardFooter>
+      </Card>
     </main>
   );
 }
