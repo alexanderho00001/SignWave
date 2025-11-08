@@ -112,61 +112,102 @@ def recognize_asl_letter(landmarks):
     middle_mcp = landmarks[9]
     ring_mcp = landmarks[13]
     pinky_mcp = landmarks[17]
+
+    # --- ADDED: Get PIP joints to detect curve ---
+    index_pip = landmarks[6]
+    middle_pip = landmarks[10]
+    ring_pip = landmarks[14]
+    pinky_pip = landmarks[18]
+    # ---
     
-    # Helper function to check if finger is extended
-    def is_finger_extended(tip, mcp):
-        extended = tip['y'] < mcp['y']  # tip is above knuckle (y-axis inverted in image)
-        return extended
+    # Helper function to check if finger is "up" (tip above knuckle)
+    def is_finger_up(tip, mcp):
+        return tip['y'] < mcp['y']  # tip is above knuckle (y-axis inverted in image)
+
+    # --- ADDED: Helper to check for 'C' curve ---
+    def is_finger_curved(tip, pip):
+        # For a 'C' curve, the tip is often "lower" (higher y) than the pip
+        return tip['y'] > pip['y']
+    # ---
+
+    # --- MODIFIED: Renamed variables for clarity ---
+    # Check which fingers are "up"
+    thumb_extended_sideways = thumb_tip['x'] > index_mcp['x'] + 0.05
+    index_up = is_finger_up(index_tip, index_mcp)
+    middle_up = is_finger_up(middle_tip, middle_mcp)
+    ring_up = is_finger_up(ring_tip, ring_mcp)
+    pinky_up = is_finger_up(pinky_tip, pinky_mcp)
     
-    # Check which fingers are extended
-    thumb_extended = thumb_tip['x'] > index_mcp['x'] + 0.05  # thumb out to side (reduced threshold)
-    index_extended = is_finger_extended(index_tip, index_mcp)
-    middle_extended = is_finger_extended(middle_tip, middle_mcp)
-    ring_extended = is_finger_extended(ring_tip, ring_mcp)
-    pinky_extended = is_finger_extended(pinky_tip, pinky_mcp)
-    
+    # Check for curve
+    index_curved = is_finger_curved(index_tip, index_pip)
+    middle_curved = is_finger_curved(middle_tip, middle_pip)
+    ring_curved = is_finger_curved(ring_tip, ring_pip)
+    pinky_curved = is_finger_curved(pinky_tip, pinky_pip)
+    # ---
+
     # Debug output
-    print(f"🖐️ Finger states - Thumb:{thumb_extended} Index:{index_extended} Middle:{middle_extended} Ring:{ring_extended} Pinky:{pinky_extended}")
+    print(f"🖐️ Up - ThumbSide:{thumb_extended_sideways} I:{index_up} M:{middle_up} R:{ring_up} P:{pinky_up}")
+    print(f"         Curve - I:{index_curved} M:{middle_curved} R:{ring_curved} P:{pinky_curved}")
     
     # Letter recognition logic (order matters!)
     
-    # V: index and middle extended, others closed (check first to avoid confusion)
-    if index_extended and middle_extended and not ring_extended and not pinky_extended:
+    # V: index and middle up, others closed
+    if index_up and middle_up and not ring_up and not pinky_up:
         finger_spread = abs(index_tip['x'] - middle_tip['x'])
-        if finger_spread > 0.04:  # reduced threshold
+        if finger_spread > 0.04:
             print("✅ Recognized: V")
             return 'V'
     
-    # L: index extended, thumb out to side, others closed
-    if index_extended and not middle_extended and not ring_extended and not pinky_extended and thumb_extended:
+    # L: index up, thumb out to side, others closed
+    if index_up and not middle_up and not ring_up and not pinky_up and thumb_extended_sideways:
         print("✅ Recognized: L")
         return 'L'
     
-    # I: only pinky extended
-    if pinky_extended and not index_extended and not middle_extended and not ring_extended:
+    # --- FIXED: 'Y' check now comes BEFORE 'I' check ---
+
+    # Y: thumb and pinky up, others closed
+    if thumb_extended_sideways and pinky_up and not index_up and not middle_up and not ring_up:
+        print("✅ Recognized: Y")
+        return 'Y'
+
+    # I: only pinky up
+    if pinky_up and not index_up and not middle_up and not ring_up:
+        # This will now only be triggered if the 'Y' check above failed
+        # (meaning the thumb is not extended)
         print("✅ Recognized: I")
         return 'I'
     
-    # Y: thumb and pinky extended, others closed
-    if thumb_extended and pinky_extended and not index_extended and not middle_extended and not ring_extended:
-        print("✅ Recognized: Y")
-        return 'Y'
+    # ---
     
-    # B: all four fingers extended, thumb tucked
-    if index_extended and middle_extended and ring_extended and pinky_extended:
-        print("✅ Recognized: B")
-        return 'B'
+    # --- MODIFIED: Logic for A, B, and C ---
     
-    # A: closed fist with thumb on side (most lenient check)
-    all_fingers_closed = not index_extended and not middle_extended and not ring_extended and not pinky_extended
+    # A: closed fist (all fingers down)
+    all_fingers_closed = not index_up and not middle_up and not ring_up and not pinky_up
     if all_fingers_closed:
-        # For A, thumb should be alongside (not necessarily below)
-        # Just check that fingers are closed - that's usually good enough
-        print(f"✅ Recognized: A (thumb_y: {thumb_tip['y']:.2f}, index_mcp_y: {index_mcp['y']:.2f})")
+        print(f"✅ Recognized: A")
         return 'A'
     
-    # C: curved hand shape (similar to A but thumb position different)
-    # Skip C for now since it's hard to distinguish from A
+    # Check for B and C (all four fingers "up")
+    all_fingers_up = index_up and middle_up and ring_up and pinky_up
+    
+    if all_fingers_up:
+        # Distinguish B (straight) from C (curved)
+        
+        # B: all fingers up AND straight (not curved)
+        # Thumb should also be tucked (not extended sideways)
+        all_fingers_straight = not index_curved and not middle_curved and not ring_curved and not pinky_curved
+        if all_fingers_straight and not thumb_extended_sideways:
+            print("✅ Recognized: B")
+            return 'B'
+
+        # C: all fingers up AND curved
+        # Be lenient: require at least 3 fingers to be curved
+        curved_count = sum([index_curved, middle_curved, ring_curved, pinky_curved])
+        if curved_count >= 3:
+            print("✅ Recognized: C")
+            return 'C'
+    
+    # ---
     
     print(f"❌ No letter match")
     return None
