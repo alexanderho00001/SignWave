@@ -117,6 +117,8 @@ def login_api(request):
 
 # ---------- ASL Recognition Functions ----------
 
+# (Keep your 'get_hand_orientation' and 'get_distance' functions as they are)
+
 def recognize_asl_letter(landmarks):
     """
     Recognizes ASL letters by first determining hand orientation.
@@ -148,16 +150,13 @@ def recognize_asl_letter(landmarks):
     # --- STEP 3: Define Helper Functions ---
     
     def is_finger_up_vertical(tip, mcp):
-        # Tip must be *significantly* higher than the knuckle to count as "up".
         return tip['y'] < mcp['y'] - 0.08 
 
     def is_finger_curved(tip, pip):
         return tip['y'] > pip['y']
 
     def is_finger_out_horizontal(tip, mcp):
-        # --- MODIFIED: Decreased threshold from 0.05 to 0.04 ---
-        # This is to fix the 'M_out=False' bug.
-        return abs(tip['x'] - mcp['x']) > 0.04 
+        return abs(tip['x'] - mcp['x']) > 0.02
     
     # --- STEP 4: Get finger states for BOTH orientations ---
     
@@ -185,11 +184,22 @@ def recognize_asl_letter(landmarks):
     if orientation == "vertical":
         print("🖐️ Orientation: Vertical")
         
-        # (All the vertical logic remains the same)
-        # V: index and middle up
+        # --- MODIFIED: 'K' and 'V' logic combined ---
+        # K and V both have index and middle up, others down
         if index_up_v and middle_up_v and not ring_up_v and not pinky_up_v:
-            print("✅ Recognized: V")
-            return 'V'
+            # Check thumb position to differentiate K vs V
+            thumb_to_middle_pip_dist = get_distance(thumb_tip, middle_pip)
+            thumb_is_up = thumb_tip['y'] < index_mcp['y'] # Check if thumb is 'up'
+            
+            # K: Thumb is 'up' and 'in' (not sideways) and touching the middle finger
+            if thumb_is_up and not thumb_extended_sideways and thumb_to_middle_pip_dist < 0.06:
+                print("✅ Recognized: K")
+                return 'K'
+            else:
+                # If thumb isn't placed for 'K', it's a 'V'
+                print("✅ Recognized: V")
+                return 'V'
+        # ---
         
         # L: index up, thumb out
         if index_up_v and not middle_up_v and not ring_up_v and not pinky_up_v and thumb_extended_sideways:
@@ -250,9 +260,7 @@ def recognize_asl_letter(landmarks):
     elif orientation == "horizontal":
         print("🖐️ Orientation: Horizontal")
         
-        # Check that fingers are not "up" vertically
         all_fingers_level = not index_up_v and not middle_up_v and not ring_up_v and not pinky_up_v
-        
         print(f"    DEBUG (H): all_level={all_fingers_level}")
         print(f"    DEBUG (H): I_out={index_out_h}, M_out={middle_out_h}, R_out={ring_out_h}, P_out={pinky_out_h}")
         

@@ -2,8 +2,8 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 
-const ASL_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'L', 'V', 'Y'];
-const REQUIRED_HOLD_DURATION = 500; // 1/2 a second
+const ASL_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'V', 'Y'];
+const REQUIRED_HOLD_DURATION = 250; // 1/2 a second
 
 export default function ASLPracticeLive() {
   const videoRef = useRef<HTMLVideoElement>(null);
