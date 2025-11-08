@@ -1,110 +1,126 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-export default function RegisterPage() {
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function LoginPage() {
+  const router = useRouter();
   const [formData, setFormData] = useState({
     username: "",
-    email: "",
     password: "",
   });
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-  };
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setSuccess(null);
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:8000/api/register/", {
+      const res = await fetch("http://localhost:8000/api/login/", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(formData),
-        credentials: "include", // optional if using cookies
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(
-          data.detail || data.error || "Registration failed"
-        );
+        throw new Error(data.detail || "Login failed");
       }
 
-      const data = await res.json();
-      console.log("Registered:", data);
-      setSuccess("Account created! You can now log in.");
-      // you could also redirect to /lessons or /dashboard here
-      // router.push("/lessons");
+      router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
-    <main style={{ maxWidth: 400, margin: "2rem auto" }}>
-      <h1>Sign up for Signwave</h1>
+    <main className="flex min-h-screen w-full items-center justify-center bg-background px-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-1 text-center">
+          <CardTitle className="text-2xl font-semibold">
+            Welcome back to SignWave
+          </CardTitle>
+          <CardDescription>
+            Log in to continue your ASL practice.
+          </CardDescription>
+        </CardHeader>
 
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="username">Username</label><br />
-          <input
-            id="username"
-            name="username"
-            value={formData.username}
-            onChange={handleChange}
-            required
-          />
-        </div>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                name="username"
+                value={formData.username}
+                onChange={handleChange}
+                autoComplete="username"
+                required
+                disabled={loading}
+              />
+            </div>
 
-        <div style={{ marginTop: "1rem" }}>
-          <label htmlFor="email">Email</label><br />
-          <input
-            id="email"
-            name="email"
-            type="email"
-            value={formData.email}
-            onChange={handleChange}
-            required
-          />
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                value={formData.password}
+                onChange={handleChange}
+                autoComplete="current-password"
+                required
+                disabled={loading}
+              />
+            </div>
 
-        <div style={{ marginTop: "1rem" }}>
-          <label htmlFor="password">Password</label><br />
-          <input
-            id="password"
-            name="password"
-            type="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-          />
-        </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Logging in..." : "Log in"}
+            </Button>
 
-        <button
-          type="submit"
-          disabled={loading}
-          style={{ marginTop: "1.5rem" }}
-        >
-          {loading ? "Signing up..." : "Sign up"}
-        </button>
-      </form>
+            {error && (
+              <p className="text-center text-sm text-destructive">
+                {error}
+              </p>
+            )}
+          </form>
+        </CardContent>
 
-      {error && <p style={{ color: "red", marginTop: "1rem" }}>{error}</p>}
-      {success && <p style={{ color: "green", marginTop: "1rem" }}>{success}</p>}
+        <CardFooter className="justify-center">
+          <p className="text-sm text-muted-foreground">
+            Don't have an account?{" "}
+            <Link
+              href="/register"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Register here
+            </Link>
+          </p>
+        </CardFooter>
+      </Card>
     </main>
   );
 }
