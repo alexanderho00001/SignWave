@@ -1,4 +1,80 @@
-# Python virtual environment
-venv/
-# Python cache
+# Python bytecode
 __pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Django stuff:
+*.log
+*.pot
+*.pyc
+db.sqlite3
+/media/
+staticfiles/
+static/
+local_settings.py
+
+# Environment variables
+.env
+*.env
+
+# VS Code and PyCharm
+.vscode/
+.idea/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+env.bak/
+venv.bak/
+
+# macOS system files
+.DS_Store
+
+# Migrations (optional — only if auto-generated & not important to share)
+# ** Uncomment if you want to ignore migrations **
+# */migrations/*.py
+# !*/migrations/__init__.py
+
+# Coverage and test files
+htmlcov/
+.tox/
+.nox/
+.coverage
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Build artifacts
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Logs and temp files
+*.log
+*.pot
+*.mo
+*.swp
+*.swo
+*.tmp
+*.bak
+*.orig
