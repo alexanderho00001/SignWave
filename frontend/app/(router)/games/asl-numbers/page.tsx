@@ -26,10 +26,10 @@ type Problem = {
 // Generate basic arithmetic problems with answers 1-10
 const generateProblem = (): Problem => {
     const answer = Math.floor(Math.random() * 10) + 1; // Random answer between 1-10
-    
+
     // Generate different types of arithmetic problems
     const problemTypes: Problem[] = [];
-    
+
     // Addition: a + b = answer
     if (answer > 1) {
         const addend1 = Math.floor(Math.random() * (answer - 1)) + 1;
@@ -45,7 +45,7 @@ const generateProblem = (): Problem => {
             answer: answer,
         });
     }
-    
+
     // Subtraction: a - b = answer (where a = answer + b)
     const subtrahend = Math.floor(Math.random() * 10) + 1;
     const minuend = answer + subtrahend;
@@ -53,7 +53,7 @@ const generateProblem = (): Problem => {
         question: `${minuend} - ${subtrahend}`,
         answer: answer,
     });
-    
+
     // Multiplication: a * b = answer
     // Find factors of answer
     const factors: number[][] = [];
@@ -69,7 +69,7 @@ const generateProblem = (): Problem => {
             answer: answer,
         });
     }
-    
+
     // Division: a / b = answer (where a = answer * b)
     const divisor = Math.floor(Math.random() * 5) + 1; // divisor between 1-5
     const dividend = answer * divisor;
@@ -210,9 +210,7 @@ export default function ASLNumbersGame() {
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
                 <h1 className="text-3xl font-bold mb-2">ASL Numbers Game</h1>
-                <p className="text-muted-foreground">
-                    Solve arithmetic problems by signing the answer!
-                </p>
+                <p className="text-muted-foreground">Solve arithmetic problems by signing the answer!</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -252,8 +250,7 @@ export default function ASLNumbersGame() {
                             {gameState === 'menu' && (
                                 <div className="flex flex-col items-center justify-center py-20 gap-4">
                                     <p className="text-lg text-muted-foreground mb-4">
-                                        Solve {TOTAL_ROUNDS} arithmetic problems in {TIME_PER_ROUND} seconds
-                                        each!
+                                        Solve {TOTAL_ROUNDS} arithmetic problems in {TIME_PER_ROUND} seconds each!
                                     </p>
                                     <Button onClick={startGame} size="lg">
                                         Start Game
@@ -265,9 +262,7 @@ export default function ASLNumbersGame() {
                                 <div className="flex flex-col items-center justify-center py-20 gap-4">
                                     <h2 className="text-3xl font-bold text-green-500">Game Complete!</h2>
                                     <p className="text-xl">Final Score: {score}</p>
-                                    <p className="text-muted-foreground">
-                                        You completed {TOTAL_ROUNDS} rounds!
-                                    </p>
+                                    <p className="text-muted-foreground">You completed {TOTAL_ROUNDS} rounds!</p>
                                     <div className="flex gap-4">
                                         <Button onClick={resetGame} variant="outline">
                                             Main Menu
@@ -289,7 +284,7 @@ export default function ASLNumbersGame() {
                                     )}
                                     <div
                                         ref={gameAreaRef}
-                                        className="relative bg-gradient-to-b from-background to-muted/20 rounded-lg border-2 border-primary/20 overflow-hidden min-h-[400px] flex flex-col items-center justify-center p-8">
+                                        className="relative from-background to-muted/20 rounded-lg border-2 border-primary/20 overflow-hidden min-h-[400px] flex flex-col items-center justify-center p-8">
                                         {/* Problem Display */}
                                         {currentProblem && (
                                             <div className="text-center space-y-6">
@@ -319,9 +314,7 @@ export default function ASLNumbersGame() {
                                             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20 animate-pulse">
                                                 <div
                                                     className={`text-6xl font-bold drop-shadow-lg ${
-                                                        showFeedback === 'correct'
-                                                            ? 'text-green-500'
-                                                            : 'text-red-500'
+                                                        showFeedback === 'correct' ? 'text-green-500' : 'text-red-500'
                                                     }`}>
                                                     {showFeedback === 'correct' ? '✓ Correct!' : '✗ Wrong'}
                                                 </div>
@@ -365,9 +358,7 @@ export default function ASLNumbersGame() {
                         <DialogContent>
                             <DialogHeader>
                                 <DialogTitle>How to Play</DialogTitle>
-                                <DialogDescription>
-                                    Learn how to play the ASL Numbers Game
-                                </DialogDescription>
+                                <DialogDescription>Learn how to play the ASL Numbers Game</DialogDescription>
                             </DialogHeader>
                             <div className="space-y-4">
                                 <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
@@ -379,8 +370,8 @@ export default function ASLNumbersGame() {
                                 </ul>
                                 <div className="p-3 bg-muted rounded-lg">
                                     <p className="text-xs text-muted-foreground">
-                                        <strong>Note:</strong> Hand detection is currently simulated for demo
-                                        purposes. Backend integration coming soon!
+                                        <strong>Note:</strong> Hand detection is currently simulated for demo purposes.
+                                        Backend integration coming soon!
                                     </p>
                                 </div>
                             </div>
@@ -391,4 +382,3 @@ export default function ASLNumbersGame() {
         </div>
     );
 }
-
