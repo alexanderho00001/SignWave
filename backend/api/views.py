@@ -38,47 +38,28 @@ def get_distance(p1, p2):
     """Calculate 2D Euclidean distance between two landmark points"""
     return math.hypot(p1['x'] - p2['x'], p1['y'] - p2['y'])
 
-def normalize_hand_rotation(landmarks):
+def get_hand_orientation(landmarks):
     """
-    Rotates all landmarks so the palm is "upright" (wrist-to-MCP vector points up).
-    This makes logic for horizontal signs (G, H) possible.
+    Determines if the hand is held 'vertical' or 'horizontal'
+    by checking the vector from the wrist to the palm center.
+    --- MODIFIED: Added a 1.5x bias towards horizontal ---
     """
     wrist = landmarks[0]
-    middle_mcp = landmarks[9]
-
-    # 1. Calculate the palm vector
-    palm_vec_x = middle_mcp['x'] - wrist['x']
-    palm_vec_y = middle_mcp['y'] - wrist['y']
+    mcp_5, mcp_9, mcp_13, mcp_17 = landmarks[5], landmarks[9], landmarks[13], landmarks[17]
     
-    # 2. Calculate the angle of this vector
-    # We want to rotate it to match the "up" vector (0, -1)
-    current_angle = math.atan2(palm_vec_y, palm_vec_x)
-    target_angle = -math.pi / 2  # Angle for (0, -1)
+    avg_mcp_x = (mcp_5['x'] + mcp_9['x'] + mcp_13['x'] + mcp_17['x']) / 4
+    avg_mcp_y = (mcp_5['y'] + mcp_9['y'] + mcp_13['y'] + mcp_17['y']) / 4
     
-    rotation_angle = target_angle - current_angle
-    cos_theta = math.cos(rotation_angle)
-    sin_theta = math.sin(rotation_angle)
+    palm_vec_x = avg_mcp_x - wrist['x']
+    palm_vec_y = avg_mcp_y - wrist['y']
     
-    # 3. Apply the rotation to all landmarks, pivoting around the wrist
-    origin_x, origin_y = wrist['x'], wrist['y']
-    rotated_landmarks = []
-    
-    for lm in landmarks:
-        # Translate point to origin
-        translated_x = lm['x'] - origin_x
-        translated_y = lm['y'] - origin_y
-        
-        # Rotate point
-        rotated_x = translated_x * cos_theta - translated_y * sin_theta
-        rotated_y = translated_x * sin_theta + translated_y * cos_theta
-        
-        # Translate point back
-        new_x = rotated_x + origin_x
-        new_y = rotated_y + origin_y
-        
-        rotated_landmarks.append({'x': new_x, 'y': new_y, 'z': lm['z']})
-        
-    return rotated_landmarks
+    # --- NEW BIAS ---
+    # Hand is only 'vertical' if the Y-component is 1.5x larger than the X.
+    # This prevents flickering when the hand is mostly horizontal.
+    if abs(palm_vec_y) > (abs(palm_vec_x) * 1.5):
+        return "vertical"
+    else:
+        return "horizontal"
 
 # ---------- Authentication APIs ----------
 
@@ -138,162 +119,155 @@ def login_api(request):
 
 def recognize_asl_letter(landmarks):
     """
-    Improved ASL letter recognition with rotation normalization.
-    Recognizes: A, B, C, D, E, F, G, H, I, L, V, Y
+    Recognizes ASL letters by first determining hand orientation.
     """
     if not landmarks or len(landmarks) != 21:
-        print(f"❌ Invalid landmarks: got {len(landmarks) if landmarks else 0} landmarks")
+        print(f"❌ Invalid landmarks")
         return None
     
-    try:
-        rotated_landmarks = normalize_hand_rotation(landmarks)
-    except Exception as e:
-        print(f"Error during rotation: {e}")
-        rotated_landmarks = landmarks 
-        
-    thumb_tip = rotated_landmarks[4]
-    index_tip = rotated_landmarks[8]
-    middle_tip = rotated_landmarks[12]
-    ring_tip = rotated_landmarks[16]
-    pinky_tip = rotated_landmarks[20]
+    # --- STEP 1: Determine Orientation ---
+    orientation = get_hand_orientation(landmarks)
     
-    index_mcp = rotated_landmarks[5]
-    middle_mcp = rotated_landmarks[9]
-    ring_mcp = rotated_landmarks[13]
-    pinky_mcp = rotated_landmarks[17]
+    # --- STEP 2: Get all landmarks ---
+    thumb_tip = landmarks[4]
+    index_tip = landmarks[8]
+    middle_tip = landmarks[12]
+    ring_tip = landmarks[16]
+    pinky_tip = landmarks[20]
+    
+    index_mcp = landmarks[5]
+    middle_mcp = landmarks[9]
+    ring_mcp = landmarks[13]
+    pinky_mcp = landmarks[17]
 
-    index_pip = rotated_landmarks[6]
-    middle_pip = rotated_landmarks[10]
-    ring_pip = rotated_landmarks[14]
-    pinky_pip = rotated_landmarks[18]
+    index_pip = landmarks[6]
+    middle_pip = landmarks[10]
+    ring_pip = landmarks[14]
+    pinky_pip = landmarks[18]
     
-    # --- Thresholds ---
-    # These are our new "tuning knobs"
-    UP_THRESHOLD = 0.04  # How high a finger tip must be (relative to knuckle) to be "up"
-    LEVEL_THRESHOLD = 0.05 # How "level" a finger tip must be (relative to knuckle) to be "sideways"
+    # --- STEP 3: Define Helper Functions ---
     
-    # --- HELPERS (now use rotated landmarks) ---
-    
-    def is_finger_up(tip, mcp):
-        # --- MODIFIED: Must be *significantly* higher ---
-        # (mcp['y'] - tip['y']) is the vertical distance.
-        # It must be greater than our threshold.
-        return (mcp['y'] - tip['y']) > UP_THRESHOLD
+    def is_finger_up_vertical(tip, mcp):
+        # Tip must be *significantly* higher than the knuckle to count as "up".
+        return tip['y'] < mcp['y'] - 0.08 
 
     def is_finger_curved(tip, pip):
         return tip['y'] > pip['y']
 
-    def is_finger_sideways(tip, mcp):
-        y_diff = abs(tip['y'] - mcp['y'])
-        x_diff = abs(tip['x'] - mcp['x'])
-        
-        # --- MODIFIED: Must be LEVEL (within threshold) ---
-        is_level = y_diff < LEVEL_THRESHOLD 
-        is_out = x_diff > 0.04
-        
-        # --- DEBUG PRINT ---
-        # This will show us the raw numbers for the index finger
-        if tip == index_tip: 
-             print(f"    DEBUG (Index): y_diff={y_diff:.4f} (level={is_level}), x_diff={x_diff:.4f} (out={is_out})")
-        
-        return is_level and is_out
+    def is_finger_out_horizontal(tip, mcp):
+        # --- MODIFIED: Decreased threshold from 0.05 to 0.04 ---
+        # This is to fix the 'M_out=False' bug.
+        return abs(tip['x'] - mcp['x']) > 0.04 
     
-    # Check "up" states
+    # --- STEP 4: Get finger states for BOTH orientations ---
+    
+    # Vertical states
     thumb_extended_sideways = thumb_tip['x'] > index_mcp['x'] + 0.06
-    index_up = is_finger_up(index_tip, index_mcp)
-    middle_up = is_finger_up(middle_tip, middle_mcp)
-    ring_up = is_finger_up(ring_tip, ring_mcp)
-    pinky_up = is_finger_up(pinky_tip, pinky_mcp)
+    index_up_v = is_finger_up_vertical(index_tip, index_mcp)
+    middle_up_v = is_finger_up_vertical(middle_tip, middle_mcp)
+    ring_up_v = is_finger_up_vertical(ring_tip, ring_mcp)
+    pinky_up_v = is_finger_up_vertical(pinky_tip, pinky_mcp)
     
-    # Check "curve" states
+    # Horizontal states
+    index_out_h = is_finger_out_horizontal(index_tip, index_mcp)
+    middle_out_h = is_finger_out_horizontal(middle_tip, middle_mcp)
+    ring_out_h = is_finger_out_horizontal(ring_tip, ring_mcp)
+    pinky_out_h = is_finger_out_horizontal(pinky_tip, pinky_mcp)
+    
+    # Curve states (used by vertical)
     index_curved = is_finger_curved(index_tip, index_pip)
     middle_curved = is_finger_curved(middle_tip, middle_pip)
     ring_curved = is_finger_curved(ring_tip, ring_pip)
-    pinky_curved = is_finger_curved(pinky_tip, pinky_pip) # <-- Fixed typo from last time
-    
-    # Check "sideways" states
-    index_sideways = is_finger_sideways(index_tip, index_mcp)
-    middle_sideways = is_finger_sideways(middle_tip, middle_mcp)
+    pinky_curved = is_finger_curved(pinky_tip, pinky_pip)
 
-    # Debug output
-    print(f"🖐️ Up - T:{thumb_extended_sideways} I:{index_up} M:{middle_up} R:{ring_up} P:{pinky_up}")
-    print(f"    Side - I:{index_sideways} M:{middle_sideways}")
+    # --- STEP 5: Run logic based on orientation ---
     
-    # --- Letter recognition logic (Order is CRITICAL) ---
-
-    # V: index and middle up
-    if index_up and middle_up and not ring_up and not pinky_up:
-        print("✅ Recognized: V")
-        return 'V'
-    
-    # L: index up, thumb out
-    if index_up and not middle_up and not ring_up and not pinky_up and thumb_extended_sideways:
-        print("✅ Recognized: L")
-        return 'L'
-    
-    # Y: thumb and pinky up
-    if thumb_extended_sideways and pinky_up and not index_up and not middle_up and not ring_up:
-        print("✅ Recognized: Y")
-        return 'Y'
-
-    # H: Index and Middle sideways
-    if index_sideways and middle_sideways and not ring_up and not pinky_up:
-        print("✅ Recognized: H")
-        return 'H'
+    if orientation == "vertical":
+        print("🖐️ Orientation: Vertical")
         
-    # G: Index sideways
-    if index_sideways and not middle_sideways and not ring_up and not pinky_up:
-        print("✅ Recognized: G")
-        return 'G'
+        # (All the vertical logic remains the same)
+        # V: index and middle up
+        if index_up_v and middle_up_v and not ring_up_v and not pinky_up_v:
+            print("✅ Recognized: V")
+            return 'V'
+        
+        # L: index up, thumb out
+        if index_up_v and not middle_up_v and not ring_up_v and not pinky_up_v and thumb_extended_sideways:
+            print("✅ Recognized: L")
+            return 'L'
+        
+        # Y: thumb and pinky up
+        if thumb_extended_sideways and pinky_up_v and not index_up_v and not middle_up_v and not ring_up_v:
+            print("✅ Recognized: Y")
+            return 'Y'
 
-    # F: Middle, Ring, Pinky up. Index and Thumb touching.
-    thumb_to_index_dist = get_distance(thumb_tip, index_tip)
-    if (middle_up and ring_up and pinky_up) and \
-       (not index_up) and \
-       (thumb_to_index_dist < 0.05): 
-        print("✅ Recognized: F")
-        return 'F'
+        # F: Middle, Ring, Pinky up. Index and Thumb touching.
+        thumb_to_index_dist = get_distance(thumb_tip, index_tip)
+        if (middle_up_v and ring_up_v and pinky_up_v) and \
+           (not index_up_v) and \
+           (thumb_to_index_dist < 0.05): 
+            print("✅ Recognized: F")
+            return 'F'
 
-    # D: Index up, others closed in a circle
-    if index_up and not middle_up and not ring_up and not pinky_up and not thumb_extended_sideways:
-        thumb_near_middle_y = abs(thumb_tip['y'] - middle_tip['y']) < 0.07
-        thumb_near_ring_y = abs(thumb_tip['y'] - ring_tip['y']) < 0.07
-        if thumb_near_middle_y or thumb_near_ring_y:
-            print("✅ Recognized: D")
-            return 'D'
+        # D: Index up, others closed in a circle
+        if index_up_v and not middle_up_v and not ring_up_v and not pinky_up_v and not thumb_extended_sideways:
+            thumb_near_middle_y = abs(thumb_tip['y'] - middle_tip['y']) < 0.07
+            thumb_near_ring_y = abs(thumb_tip['y'] - ring_tip['y']) < 0.07
+            if thumb_near_middle_y or thumb_near_ring_y:
+                print("✅ Recognized: D")
+                return 'D'
 
-    # I: only pinky up
-    if pinky_up and not index_up and not middle_up and not ring_up:
-        print("✅ Recognized: I")
-        return 'I'
-    
-    # 'A' and 'E' logic (fist)
-    all_fingers_closed = not index_up and not middle_up and not ring_up and not pinky_up \
-                         and not index_sideways and not middle_sideways # G/H check
-    
-    if all_fingers_closed:
-        if thumb_extended_sideways:
-            print("✅ Recognized: A")
-            return 'A'
-        else:
-            print("✅ Recognized: E")
-            return 'E'
-    
-    # 'B' and 'C' logic (all fingers up)
-    all_fingers_up = index_up and middle_up and ring_up and pinky_up
-    
-    if all_fingers_up:
-        all_fingers_straight = not index_curved and not middle_curved and not ring_curved and not pinky_curved
-        if all_fingers_straight and not thumb_extended_sideways:
-            print("✅ Recognized: B")
-            return 'B'
+        # I: only pinky up
+        if pinky_up_v and not index_up_v and not middle_up_v and not ring_up_v:
+            print("✅ Recognized: I")
+            return 'I'
+        
+        # 'A' and 'E' logic (fist)
+        all_fingers_closed = not index_up_v and not middle_up_v and not ring_up_v and not pinky_up_v
+        
+        if all_fingers_closed:
+            if thumb_extended_sideways:
+                print("✅ Recognized: A")
+                return 'A'
+            else:
+                print("✅ Recognized: E")
+                return 'E'
+        
+        # 'B' and 'C' logic (all fingers up)
+        all_fingers_up = index_up_v and middle_up_v and ring_up_v and pinky_up_v
+        
+        if all_fingers_up:
+            all_fingers_straight = not index_curved and not middle_curved and not ring_curved and not pinky_curved
+            if all_fingers_straight and not thumb_extended_sideways:
+                print("✅ Recognized: B")
+                return 'B'
 
-        curved_count = sum([index_curved, middle_curved, ring_curved, pinky_curved])
-        if curved_count >= 3:
-            print("✅ Recognized: C")
-            return 'C'
-    
-    print(f"❌ No letter match")
+            curved_count = sum([index_curved, middle_curved, ring_curved, pinky_curved])
+            if curved_count >= 3:
+                print("✅ Recognized: C")
+                return 'C'
+
+    elif orientation == "horizontal":
+        print("🖐️ Orientation: Horizontal")
+        
+        # Check that fingers are not "up" vertically
+        all_fingers_level = not index_up_v and not middle_up_v and not ring_up_v and not pinky_up_v
+        
+        print(f"    DEBUG (H): all_level={all_fingers_level}")
+        print(f"    DEBUG (H): I_out={index_out_h}, M_out={middle_out_h}, R_out={ring_out_h}, P_out={pinky_out_h}")
+        
+        if all_fingers_level:
+            # H: Index and Middle extended horizontally
+            if index_out_h and middle_out_h and not ring_out_h and not pinky_out_h:
+                print("✅ Recognized: H")
+                return 'H'
+            
+            # G: Index extended horizontally
+            if index_out_h and not middle_out_h and not ring_out_h and not pinky_out_h:
+                print("✅ Recognized: G")
+                return 'G'
+
+    print(f"❌ No letter match (Orientation: {orientation})")
     return None
 
 # ---------- Hand Tracking APIs ----------
