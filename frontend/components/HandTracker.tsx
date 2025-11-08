@@ -76,7 +76,7 @@ export default function HandTracker() {
       setError(null);
 
       const response = await fetch(
-        'http://localhost:8000/api/track-hands/',
+        'http://localhost:8000/api/track_hands/',
         {
           method: 'POST',
           headers: {
