@@ -145,15 +145,12 @@ def recognize_asl_letter(landmarks):
         print(f"❌ Invalid landmarks: got {len(landmarks) if landmarks else 0} landmarks")
         return None
     
-    # --- NEW: NORMALIZE HAND ROTATION ---
     try:
         rotated_landmarks = normalize_hand_rotation(landmarks)
     except Exception as e:
         print(f"Error during rotation: {e}")
-        rotated_landmarks = landmarks # Fallback if rotation fails
-    # ---
-
-    # Get key landmark positions from the *rotated* list
+        rotated_landmarks = landmarks 
+        
     thumb_tip = rotated_landmarks[4]
     index_tip = rotated_landmarks[8]
     middle_tip = rotated_landmarks[12]
@@ -170,22 +167,35 @@ def recognize_asl_letter(landmarks):
     ring_pip = rotated_landmarks[14]
     pinky_pip = rotated_landmarks[18]
     
+    # --- Thresholds ---
+    # These are our new "tuning knobs"
+    UP_THRESHOLD = 0.04  # How high a finger tip must be (relative to knuckle) to be "up"
+    LEVEL_THRESHOLD = 0.05 # How "level" a finger tip must be (relative to knuckle) to be "sideways"
+    
     # --- HELPERS (now use rotated landmarks) ---
     
     def is_finger_up(tip, mcp):
-        # Y-axis is inverted, so "up" is a smaller Y value
-        return tip['y'] < mcp['y']
+        # --- MODIFIED: Must be *significantly* higher ---
+        # (mcp['y'] - tip['y']) is the vertical distance.
+        # It must be greater than our threshold.
+        return (mcp['y'] - tip['y']) > UP_THRESHOLD
 
     def is_finger_curved(tip, pip):
-        # Tip is "lower" (higher Y) than the middle knuckle
         return tip['y'] > pip['y']
 
-    # --- NEW HELPER: For G and H ---
     def is_finger_sideways(tip, mcp):
-        # Checks if finger is pointing horizontally
-        # After normalization, Ys should be "level", Xs should be "apart"
-        is_level = abs(tip['y'] - mcp['y']) < 0.04 # 0.04 is a threshold
-        is_out = abs(tip['x'] - mcp['x']) > 0.05 
+        y_diff = abs(tip['y'] - mcp['y'])
+        x_diff = abs(tip['x'] - mcp['x'])
+        
+        # --- MODIFIED: Must be LEVEL (within threshold) ---
+        is_level = y_diff < LEVEL_THRESHOLD 
+        is_out = x_diff > 0.04
+        
+        # --- DEBUG PRINT ---
+        # This will show us the raw numbers for the index finger
+        if tip == index_tip: 
+             print(f"    DEBUG (Index): y_diff={y_diff:.4f} (level={is_level}), x_diff={x_diff:.4f} (out={is_out})")
+        
         return is_level and is_out
     
     # Check "up" states
@@ -199,9 +209,9 @@ def recognize_asl_letter(landmarks):
     index_curved = is_finger_curved(index_tip, index_pip)
     middle_curved = is_finger_curved(middle_tip, middle_pip)
     ring_curved = is_finger_curved(ring_tip, ring_pip)
-    pinky_curved = is_finger_curved(pinky_tip, pinky_pip)
+    pinky_curved = is_finger_curved(pinky_tip, pinky_pip) # <-- Fixed typo from last time
     
-    # --- NEW: Check "sideways" states ---
+    # Check "sideways" states
     index_sideways = is_finger_sideways(index_tip, index_mcp)
     middle_sideways = is_finger_sideways(middle_tip, middle_mcp)
 
@@ -226,9 +236,6 @@ def recognize_asl_letter(landmarks):
         print("✅ Recognized: Y")
         return 'Y'
 
-    # --- NEW: G and H (horizontal signs) ---
-    # Must check before "closed fist" logic
-
     # H: Index and Middle sideways
     if index_sideways and middle_sideways and not ring_up and not pinky_up:
         print("✅ Recognized: H")
@@ -238,7 +245,6 @@ def recognize_asl_letter(landmarks):
     if index_sideways and not middle_sideways and not ring_up and not pinky_up:
         print("✅ Recognized: G")
         return 'G'
-    # ---
 
     # F: Middle, Ring, Pinky up. Index and Thumb touching.
     thumb_to_index_dist = get_distance(thumb_tip, index_tip)
