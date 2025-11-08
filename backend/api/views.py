@@ -12,6 +12,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 import base64
 import numpy as np
+import math
 
 # Import the pre-trained model
 from .asl_pretrained_model import ASLPretrainedModel
@@ -33,6 +34,51 @@ asl_model = ASLPretrainedModel()
 # Buffer to store sequences for video recognition
 sequence_buffers = {}
 
+def get_distance(p1, p2):
+    """Calculate 2D Euclidean distance between two landmark points"""
+    return math.hypot(p1['x'] - p2['x'], p1['y'] - p2['y'])
+
+def normalize_hand_rotation(landmarks):
+    """
+    Rotates all landmarks so the palm is "upright" (wrist-to-MCP vector points up).
+    This makes logic for horizontal signs (G, H) possible.
+    """
+    wrist = landmarks[0]
+    middle_mcp = landmarks[9]
+
+    # 1. Calculate the palm vector
+    palm_vec_x = middle_mcp['x'] - wrist['x']
+    palm_vec_y = middle_mcp['y'] - wrist['y']
+    
+    # 2. Calculate the angle of this vector
+    # We want to rotate it to match the "up" vector (0, -1)
+    current_angle = math.atan2(palm_vec_y, palm_vec_x)
+    target_angle = -math.pi / 2  # Angle for (0, -1)
+    
+    rotation_angle = target_angle - current_angle
+    cos_theta = math.cos(rotation_angle)
+    sin_theta = math.sin(rotation_angle)
+    
+    # 3. Apply the rotation to all landmarks, pivoting around the wrist
+    origin_x, origin_y = wrist['x'], wrist['y']
+    rotated_landmarks = []
+    
+    for lm in landmarks:
+        # Translate point to origin
+        translated_x = lm['x'] - origin_x
+        translated_y = lm['y'] - origin_y
+        
+        # Rotate point
+        rotated_x = translated_x * cos_theta - translated_y * sin_theta
+        rotated_y = translated_x * sin_theta + translated_y * cos_theta
+        
+        # Translate point back
+        new_x = rotated_x + origin_x
+        new_y = rotated_y + origin_y
+        
+        rotated_landmarks.append({'x': new_x, 'y': new_y, 'z': lm['z']})
+        
+    return rotated_landmarks
 
 # ---------- Authentication APIs ----------
 
@@ -92,126 +138,157 @@ def login_api(request):
 
 def recognize_asl_letter(landmarks):
     """
-    Improved ASL letter recognition with debug logging
-    Recognizes static letters: A, B, C, I, L, V, Y
+    Improved ASL letter recognition with rotation normalization.
+    Recognizes: A, B, C, D, E, F, G, H, I, L, V, Y
     """
     if not landmarks or len(landmarks) != 21:
         print(f"❌ Invalid landmarks: got {len(landmarks) if landmarks else 0} landmarks")
         return None
     
-    # Get key landmark positions
-    thumb_tip = landmarks[4]
-    index_tip = landmarks[8]
-    middle_tip = landmarks[12]
-    ring_tip = landmarks[16]
-    pinky_tip = landmarks[20]
-    
-    wrist = landmarks[0]
-    thumb_ip = landmarks[3]  # thumb knuckle
-    index_mcp = landmarks[5]  # index knuckle
-    middle_mcp = landmarks[9]
-    ring_mcp = landmarks[13]
-    pinky_mcp = landmarks[17]
-
-    # --- ADDED: Get PIP joints to detect curve ---
-    index_pip = landmarks[6]
-    middle_pip = landmarks[10]
-    ring_pip = landmarks[14]
-    pinky_pip = landmarks[18]
+    # --- NEW: NORMALIZE HAND ROTATION ---
+    try:
+        rotated_landmarks = normalize_hand_rotation(landmarks)
+    except Exception as e:
+        print(f"Error during rotation: {e}")
+        rotated_landmarks = landmarks # Fallback if rotation fails
     # ---
+
+    # Get key landmark positions from the *rotated* list
+    thumb_tip = rotated_landmarks[4]
+    index_tip = rotated_landmarks[8]
+    middle_tip = rotated_landmarks[12]
+    ring_tip = rotated_landmarks[16]
+    pinky_tip = rotated_landmarks[20]
     
-    # Helper function to check if finger is "up" (tip above knuckle)
+    index_mcp = rotated_landmarks[5]
+    middle_mcp = rotated_landmarks[9]
+    ring_mcp = rotated_landmarks[13]
+    pinky_mcp = rotated_landmarks[17]
+
+    index_pip = rotated_landmarks[6]
+    middle_pip = rotated_landmarks[10]
+    ring_pip = rotated_landmarks[14]
+    pinky_pip = rotated_landmarks[18]
+    
+    # --- HELPERS (now use rotated landmarks) ---
+    
     def is_finger_up(tip, mcp):
-        return tip['y'] < mcp['y']  # tip is above knuckle (y-axis inverted in image)
+        # Y-axis is inverted, so "up" is a smaller Y value
+        return tip['y'] < mcp['y']
 
-    # --- ADDED: Helper to check for 'C' curve ---
     def is_finger_curved(tip, pip):
-        # For a 'C' curve, the tip is often "lower" (higher y) than the pip
+        # Tip is "lower" (higher Y) than the middle knuckle
         return tip['y'] > pip['y']
-    # ---
 
-    # --- MODIFIED: Renamed variables for clarity ---
-    # Check which fingers are "up"
-    thumb_extended_sideways = thumb_tip['x'] > index_mcp['x'] + 0.05
+    # --- NEW HELPER: For G and H ---
+    def is_finger_sideways(tip, mcp):
+        # Checks if finger is pointing horizontally
+        # After normalization, Ys should be "level", Xs should be "apart"
+        is_level = abs(tip['y'] - mcp['y']) < 0.04 # 0.04 is a threshold
+        is_out = abs(tip['x'] - mcp['x']) > 0.05 
+        return is_level and is_out
+    
+    # Check "up" states
+    thumb_extended_sideways = thumb_tip['x'] > index_mcp['x'] + 0.06
     index_up = is_finger_up(index_tip, index_mcp)
     middle_up = is_finger_up(middle_tip, middle_mcp)
     ring_up = is_finger_up(ring_tip, ring_mcp)
     pinky_up = is_finger_up(pinky_tip, pinky_mcp)
     
-    # Check for curve
+    # Check "curve" states
     index_curved = is_finger_curved(index_tip, index_pip)
     middle_curved = is_finger_curved(middle_tip, middle_pip)
     ring_curved = is_finger_curved(ring_tip, ring_pip)
     pinky_curved = is_finger_curved(pinky_tip, pinky_pip)
-    # ---
+    
+    # --- NEW: Check "sideways" states ---
+    index_sideways = is_finger_sideways(index_tip, index_mcp)
+    middle_sideways = is_finger_sideways(middle_tip, middle_mcp)
 
     # Debug output
-    print(f"🖐️ Up - ThumbSide:{thumb_extended_sideways} I:{index_up} M:{middle_up} R:{ring_up} P:{pinky_up}")
-    print(f"         Curve - I:{index_curved} M:{middle_curved} R:{ring_curved} P:{pinky_curved}")
+    print(f"🖐️ Up - T:{thumb_extended_sideways} I:{index_up} M:{middle_up} R:{ring_up} P:{pinky_up}")
+    print(f"    Side - I:{index_sideways} M:{middle_sideways}")
     
-    # Letter recognition logic (order matters!)
-    
-    # V: index and middle up, others closed
+    # --- Letter recognition logic (Order is CRITICAL) ---
+
+    # V: index and middle up
     if index_up and middle_up and not ring_up and not pinky_up:
-        finger_spread = abs(index_tip['x'] - middle_tip['x'])
-        if finger_spread > 0.04:
-            print("✅ Recognized: V")
-            return 'V'
+        print("✅ Recognized: V")
+        return 'V'
     
-    # L: index up, thumb out to side, others closed
+    # L: index up, thumb out
     if index_up and not middle_up and not ring_up and not pinky_up and thumb_extended_sideways:
         print("✅ Recognized: L")
         return 'L'
     
-    # --- FIXED: 'Y' check now comes BEFORE 'I' check ---
-
-    # Y: thumb and pinky up, others closed
+    # Y: thumb and pinky up
     if thumb_extended_sideways and pinky_up and not index_up and not middle_up and not ring_up:
         print("✅ Recognized: Y")
         return 'Y'
 
+    # --- NEW: G and H (horizontal signs) ---
+    # Must check before "closed fist" logic
+
+    # H: Index and Middle sideways
+    if index_sideways and middle_sideways and not ring_up and not pinky_up:
+        print("✅ Recognized: H")
+        return 'H'
+        
+    # G: Index sideways
+    if index_sideways and not middle_sideways and not ring_up and not pinky_up:
+        print("✅ Recognized: G")
+        return 'G'
+    # ---
+
+    # F: Middle, Ring, Pinky up. Index and Thumb touching.
+    thumb_to_index_dist = get_distance(thumb_tip, index_tip)
+    if (middle_up and ring_up and pinky_up) and \
+       (not index_up) and \
+       (thumb_to_index_dist < 0.05): 
+        print("✅ Recognized: F")
+        return 'F'
+
+    # D: Index up, others closed in a circle
+    if index_up and not middle_up and not ring_up and not pinky_up and not thumb_extended_sideways:
+        thumb_near_middle_y = abs(thumb_tip['y'] - middle_tip['y']) < 0.07
+        thumb_near_ring_y = abs(thumb_tip['y'] - ring_tip['y']) < 0.07
+        if thumb_near_middle_y or thumb_near_ring_y:
+            print("✅ Recognized: D")
+            return 'D'
+
     # I: only pinky up
     if pinky_up and not index_up and not middle_up and not ring_up:
-        # This will now only be triggered if the 'Y' check above failed
-        # (meaning the thumb is not extended)
         print("✅ Recognized: I")
         return 'I'
     
-    # ---
+    # 'A' and 'E' logic (fist)
+    all_fingers_closed = not index_up and not middle_up and not ring_up and not pinky_up \
+                         and not index_sideways and not middle_sideways # G/H check
     
-    # --- MODIFIED: Logic for A, B, and C ---
-    
-    # A: closed fist (all fingers down)
-    all_fingers_closed = not index_up and not middle_up and not ring_up and not pinky_up
     if all_fingers_closed:
-        print(f"✅ Recognized: A")
-        return 'A'
+        if thumb_extended_sideways:
+            print("✅ Recognized: A")
+            return 'A'
+        else:
+            print("✅ Recognized: E")
+            return 'E'
     
-    # Check for B and C (all four fingers "up")
+    # 'B' and 'C' logic (all fingers up)
     all_fingers_up = index_up and middle_up and ring_up and pinky_up
     
     if all_fingers_up:
-        # Distinguish B (straight) from C (curved)
-        
-        # B: all fingers up AND straight (not curved)
-        # Thumb should also be tucked (not extended sideways)
         all_fingers_straight = not index_curved and not middle_curved and not ring_curved and not pinky_curved
         if all_fingers_straight and not thumb_extended_sideways:
             print("✅ Recognized: B")
             return 'B'
 
-        # C: all fingers up AND curved
-        # Be lenient: require at least 3 fingers to be curved
         curved_count = sum([index_curved, middle_curved, ring_curved, pinky_curved])
         if curved_count >= 3:
             print("✅ Recognized: C")
             return 'C'
     
-    # ---
-    
     print(f"❌ No letter match")
     return None
-
 
 # ---------- Hand Tracking APIs ----------
 

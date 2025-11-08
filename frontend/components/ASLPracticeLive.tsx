@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useEffect, useState, useCallback } from 'react'; // Import useCallback
+import { useRef, useEffect, useState, useCallback } from 'react';
 
-const ASL_LETTERS = ['A', 'B', 'C', 'I', 'L', 'V', 'Y'];
+const ASL_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'L', 'V', 'Y'];
+const REQUIRED_HOLD_DURATION = 500; // 1/2 a second
 
 export default function ASLPracticeLive() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -14,29 +15,24 @@ export default function ASLPracticeLive() {
   const [attempts, setAttempts] = useState(0);
   const [isTracking, setIsTracking] = useState(false);
   
-  // FIX 1: Use a ref for the completion lock.
-  // This prevents stale state in closures.
   const justCompletedRef = useRef(false);
-  
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // This effect runs once to start the webcam
+  const firstCorrectDetectionTimeRef = useRef<number | null>(null);
+
   useEffect(() => {
     startWebcam();
     
-    // Cleanup function:
-    // This will run when the component is unmounted
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
-      // Stop webcam stream
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => track.stop());
       }
     };
-  }, []); // Empty array ensures this runs only once on mount
+  }, []);
 
   const startWebcam = async () => {
     try {
@@ -52,10 +48,7 @@ export default function ASLPracticeLive() {
     }
   };
 
-  // FIX 2: Wrap checkSign in useCallback
-  // It will now only be remade when `currentLetter` changes.
   const checkSign = useCallback(async () => {
-    // Check the ref. If we're waiting for the next letter, don't do anything.
     if (!videoRef.current || !canvasRef.current || justCompletedRef.current) {
       return;
     }
@@ -64,7 +57,6 @@ export default function ASLPracticeLive() {
     const canvas = canvasRef.current;
     const context = canvas.getContext('2d');
     if (!context) return;
-
     if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
 
     canvas.width = video.videoWidth;
@@ -84,52 +76,68 @@ export default function ASLPracticeLive() {
 
       const data = await response.json();
       
-      console.log('API Response:', data);
-      
       if (data.letters && data.letters.length > 0) {
         const letter = data.letters[0];
-        console.log('Detected letter:', letter, 'Expected:', currentLetter, 'Match:', letter === currentLetter);
-        
         setDetectedLetter(letter);
         
-        // This `currentLetter` is guaranteed to be fresh because
-        // it's a dependency of the useCallback hook.
         const correct = letter === currentLetter;
         
-        // Check the ref here
-        if (correct && !justCompletedRef.current) {
-          console.log('✅ Correct sign detected! Moving to next letter...');
-          setIsCorrect(true);
-          justCompletedRef.current = true; // Set the lock
-          
-          // Use functional updates to be safe
-          setScore(prev => prev + 1);
-          setAttempts(prev => prev + 1);
-          
-          // Move to next letter after success
-          setTimeout(() => {
-            console.log('Moving to next letter');
-            const currentIndex = ASL_LETTERS.indexOf(currentLetter);
-            const nextIndex = (currentIndex + 1) % ASL_LETTERS.length;
-            const nextLetter = ASL_LETTERS[nextIndex];
+        // --- NEW: Logic to check for hold duration ---
+        if (correct) {
+          // User is showing the right sign
+          setIsCorrect(true); // Give immediate positive feedback
+
+          if (firstCorrectDetectionTimeRef.current === null) {
+            // This is the FIRST frame we've seen the correct sign.
+            // Start the timer.
+            console.log('Hold registered. Starting timer...');
+            firstCorrectDetectionTimeRef.current = Date.now();
+          } else {
+            // We've seen this sign before. Check if they've held it long enough.
+            const durationHeld = Date.now() - firstCorrectDetectionTimeRef.current;
+            console.log(`Holding... ${durationHeld}ms`);
             
-            console.log(`Changing from ${currentLetter} to ${nextLetter}`);
-            setCurrentLetter(nextLetter); // This will trigger a re-render
-            
-            setIsCorrect(null);
-            setDetectedLetter(null);
-            justCompletedRef.current = false; // Reset the lock for the new letter
-          }, 1500);
-          
-        } else if (!correct) {
+            if (durationHeld >= REQUIRED_HOLD_DURATION && !justCompletedRef.current) {
+              // SUCCESS! They held it.
+              console.log('✅ Success! Held for long enough.');
+              justCompletedRef.current = true; // Set the lock
+              
+              setScore(prev => prev + 1);
+              setAttempts(prev => prev + 1);
+              
+              // Reset the hold timer for the next letter
+              firstCorrectDetectionTimeRef.current = null; 
+
+              // Move to next letter after success
+              setTimeout(() => {
+                console.log('Moving to next letter');
+                const currentIndex = ASL_LETTERS.indexOf(currentLetter);
+                const nextIndex = (currentIndex + 1) % ASL_LETTERS.length;
+                const nextLetter = ASL_LETTERS[nextIndex];
+                
+                console.log(`Changing from ${currentLetter} to ${nextLetter}`);
+                setCurrentLetter(nextLetter);
+                
+                setIsCorrect(null);
+                setDetectedLetter(null);
+                justCompletedRef.current = false; // Reset the lock
+              }, 1500); // Keep the 1.5s delay so they see the success
+            }
+          }
+        } else {
+          // User is showing the WRONG sign
+          console.log('❌ Wrong sign. Resetting timer.');
           setIsCorrect(false);
-          console.log('❌ Wrong sign. Expected:', currentLetter, 'Got:', letter);
-        } else if (justCompletedRef.current) {
-          console.log('⏭️ Already completed this letter, waiting...');
+          // NEW: Reset the timer if the sign is wrong
+          firstCorrectDetectionTimeRef.current = null;
         }
+        // --- End of new logic ---
+
       } else {
+        // NO hand detected
         setDetectedLetter(null);
-        // Only reset "isCorrect" if we're not in a success-lock
+        // NEW: Reset the timer if no hand is seen
+        firstCorrectDetectionTimeRef.current = null;
         if (!justCompletedRef.current) {
           setIsCorrect(null);
         }
@@ -137,41 +145,33 @@ export default function ASLPracticeLive() {
     } catch (error) {
       console.error('Error checking sign:', error);
     }
-    // `currentLetter` is the only state variable from the outer scope
-    // that this function *reads* (and doesn't just set).
   }, [currentLetter]); 
 
-  // FIX 3: Use useEffect to manage the interval
   useEffect(() => {
     if (isTracking) {
-      // If we are starting tracking, make sure the lock is reset
       justCompletedRef.current = false;
+      // NEW: Reset timer on start
+      firstCorrectDetectionTimeRef.current = null; 
       
-      // Start the interval
       intervalRef.current = setInterval(checkSign, 500);
       console.log("Tracking started, interval set.");
       
     } else {
-      // Stop the interval if it exists
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
         console.log("Tracking stopped, interval cleared.");
       }
-      // Clean up UI state
       setDetectedLetter(null);
       setIsCorrect(null);
     }
     
-    // Cleanup function for this effect
-    // This runs when `isTracking` or `checkSign` changes, *before*
-    // the new effect runs.
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isTracking, checkSign]); // Re-run when tracking is toggled or checkSign is updated
+  }, [isTracking, checkSign]);
 
   const nextLetter = () => {
     const currentIndex = ASL_LETTERS.indexOf(currentLetter);
@@ -179,7 +179,9 @@ export default function ASLPracticeLive() {
     setCurrentLetter(ASL_LETTERS[nextIndex]);
     setDetectedLetter(null);
     setIsCorrect(null);
-    justCompletedRef.current = false; // Reset lock
+    justCompletedRef.current = false;
+    // NEW: Reset timer
+    firstCorrectDetectionTimeRef.current = null;
   };
 
   const resetGame = () => {
@@ -188,17 +190,18 @@ export default function ASLPracticeLive() {
     setCurrentLetter(ASL_LETTERS[0]);
     setDetectedLetter(null);
     setIsCorrect(null);
-    justCompletedRef.current = false; // Reset lock
+    justCompletedRef.current = false;
+    // NEW: Reset timer
+    firstCorrectDetectionTimeRef.current = null;
   };
 
-  // FIX 4: Simplify toggleTracking
-  // It just needs to toggle the state. The useEffect will handle the rest.
   const toggleTracking = () => {
     setIsTracking(prev => !prev);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white p-8">
+      {/* ... (The rest of your JSX remains exactly the same) ... */}
       <div className="max-w-4xl mx-auto">
         <h1 className="text-4xl font-bold text-center mb-2">SignWave</h1>
         <p className="text-center text-gray-600 mb-8">Practice ASL Letters - Live Camera</p>
