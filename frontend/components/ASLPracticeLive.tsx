@@ -13,6 +13,7 @@ export default function ASLPracticeLive() {
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [isTracking, setIsTracking] = useState(false);
+  const [justCompleted, setJustCompleted] = useState(false); // Prevent duplicate detections
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -66,23 +67,58 @@ export default function ASLPracticeLive() {
 
       const data = await response.json();
       
+      console.log('API Response:', data); // Debug
+      console.log('Current letter:', currentLetter); // Debug
+      console.log('isTracking:', isTracking, 'justCompleted:', justCompleted); // Debug tracking state
+      
       if (data.letters && data.letters.length > 0) {
         const letter = data.letters[0];
+        console.log('Detected letter:', letter, 'Expected:', currentLetter, 'Match:', letter === currentLetter); // Debug
+        
         setDetectedLetter(letter);
         
         const correct = letter === currentLetter;
-        setIsCorrect(correct);
         
-        if (correct && isTracking) {
-          setScore(score + 1);
-          setAttempts(attempts + 1);
+        // Only process if correct and not already processing
+        // Don't check isTracking here - if the interval is running, we're tracking
+        if (correct && !justCompleted) {
+          console.log('✅ Correct sign detected! Moving to next letter...'); // Debug
+          setIsCorrect(true);
+          setJustCompleted(true); // Prevent duplicate detections
+          setScore(prev => {
+            const newScore = prev + 1;
+            console.log(`Score updated: ${prev} -> ${newScore}`);
+            return newScore;
+          });
+          setAttempts(prev => {
+            const newAttempts = prev + 1;
+            console.log(`Attempts updated: ${prev} -> ${newAttempts}`);
+            return newAttempts;
+          });
+          
           // Move to next letter after success
           setTimeout(() => {
-            nextLetter();
-          }, 1000);
+            console.log('Moving to next letter'); // Debug
+            const currentIndex = ASL_LETTERS.indexOf(currentLetter);
+            const nextIndex = (currentIndex + 1) % ASL_LETTERS.length;
+            const nextLetter = ASL_LETTERS[nextIndex];
+            console.log(`Changing from ${currentLetter} to ${nextLetter}`);
+            setCurrentLetter(nextLetter);
+            setIsCorrect(null);
+            setDetectedLetter(null);
+            setJustCompleted(false); // Reset for next letter
+          }, 1500);
+        } else if (!correct) {
+          setIsCorrect(false);
+          console.log('❌ Wrong sign. Expected:', currentLetter, 'Got:', letter); // Debug
+        } else if (justCompleted) {
+          console.log('⏭️ Already completed this letter, waiting...'); // Debug
         }
       } else {
         setDetectedLetter(null);
+        if (!justCompleted) {
+          setIsCorrect(null);
+        }
       }
     } catch (error) {
       console.error('Error checking sign:', error);
@@ -95,6 +131,7 @@ export default function ASLPracticeLive() {
     setCurrentLetter(ASL_LETTERS[nextIndex]);
     setDetectedLetter(null);
     setIsCorrect(null);
+    setJustCompleted(false); // Reset for new letter
   };
 
   const resetGame = () => {

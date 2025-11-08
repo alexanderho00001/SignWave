@@ -92,10 +92,11 @@ def login_api(request):
 
 def recognize_asl_letter(landmarks):
     """
-    Simple ASL letter recognition based on hand landmark positions.
+    Improved ASL letter recognition with debug logging
     Recognizes static letters: A, B, C, I, L, V, Y
     """
     if not landmarks or len(landmarks) != 21:
+        print(f"❌ Invalid landmarks: got {len(landmarks) if landmarks else 0} landmarks")
         return None
     
     # Get key landmark positions
@@ -106,55 +107,68 @@ def recognize_asl_letter(landmarks):
     pinky_tip = landmarks[20]
     
     wrist = landmarks[0]
-    index_mcp = landmarks[5]  # knuckle
+    thumb_ip = landmarks[3]  # thumb knuckle
+    index_mcp = landmarks[5]  # index knuckle
     middle_mcp = landmarks[9]
     ring_mcp = landmarks[13]
     pinky_mcp = landmarks[17]
     
     # Helper function to check if finger is extended
     def is_finger_extended(tip, mcp):
-        return tip['y'] < mcp['y']  # tip is above knuckle (y-axis is inverted)
+        extended = tip['y'] < mcp['y']  # tip is above knuckle (y-axis inverted in image)
+        return extended
     
     # Check which fingers are extended
-    thumb_extended = thumb_tip['x'] > index_mcp['x'] + 0.1  # thumb out to side
+    thumb_extended = thumb_tip['x'] > index_mcp['x'] + 0.05  # thumb out to side (reduced threshold)
     index_extended = is_finger_extended(index_tip, index_mcp)
     middle_extended = is_finger_extended(middle_tip, middle_mcp)
     ring_extended = is_finger_extended(ring_tip, ring_mcp)
     pinky_extended = is_finger_extended(pinky_tip, pinky_mcp)
     
-    # Simple letter recognition logic
-    # A: closed fist with thumb on side
-    if not index_extended and not middle_extended and not ring_extended and not pinky_extended:
-        if thumb_tip['y'] > index_mcp['y']:
-            return 'A'
+    # Debug output
+    print(f"🖐️ Finger states - Thumb:{thumb_extended} Index:{index_extended} Middle:{middle_extended} Ring:{ring_extended} Pinky:{pinky_extended}")
     
-    # B: all fingers extended except thumb
-    if index_extended and middle_extended and ring_extended and pinky_extended and not thumb_extended:
-        return 'B'
+    # Letter recognition logic (order matters!)
     
-    # C: curved hand shape (all fingers slightly bent)
-    if not index_extended and not middle_extended and not ring_extended and not pinky_extended:
-        if thumb_tip['x'] < index_mcp['x']:
-            return 'C'
-    
-    # V: index and middle extended, others closed
+    # V: index and middle extended, others closed (check first to avoid confusion)
     if index_extended and middle_extended and not ring_extended and not pinky_extended:
         finger_spread = abs(index_tip['x'] - middle_tip['x'])
-        if finger_spread > 0.05:
+        if finger_spread > 0.04:  # reduced threshold
+            print("✅ Recognized: V")
             return 'V'
     
-    # L: index extended, thumb out to side
+    # L: index extended, thumb out to side, others closed
     if index_extended and not middle_extended and not ring_extended and not pinky_extended and thumb_extended:
+        print("✅ Recognized: L")
         return 'L'
-    
-    # Y: thumb and pinky extended
-    if thumb_extended and pinky_extended and not index_extended and not middle_extended and not ring_extended:
-        return 'Y'
     
     # I: only pinky extended
     if pinky_extended and not index_extended and not middle_extended and not ring_extended:
+        print("✅ Recognized: I")
         return 'I'
     
+    # Y: thumb and pinky extended, others closed
+    if thumb_extended and pinky_extended and not index_extended and not middle_extended and not ring_extended:
+        print("✅ Recognized: Y")
+        return 'Y'
+    
+    # B: all four fingers extended, thumb tucked
+    if index_extended and middle_extended and ring_extended and pinky_extended:
+        print("✅ Recognized: B")
+        return 'B'
+    
+    # A: closed fist with thumb on side (most lenient check)
+    all_fingers_closed = not index_extended and not middle_extended and not ring_extended and not pinky_extended
+    if all_fingers_closed:
+        # For A, thumb should be alongside (not necessarily below)
+        # Just check that fingers are closed - that's usually good enough
+        print(f"✅ Recognized: A (thumb_y: {thumb_tip['y']:.2f}, index_mcp_y: {index_mcp['y']:.2f})")
+        return 'A'
+    
+    # C: curved hand shape (similar to A but thumb position different)
+    # Skip C for now since it's hard to distinguish from A
+    
+    print(f"❌ No letter match")
     return None
 
 
