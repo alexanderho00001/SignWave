@@ -1,4 +1,3 @@
-
 from django.shortcuts import render, get_object_or_404
 
 from django.contrib.auth.models import User
@@ -16,8 +15,8 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from progress.models import Lesson, UserProgress
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
+
+
 
 
 @csrf_exempt  # for dev only; better to configure proper CSRF later
@@ -48,42 +47,58 @@ def register_api(request):
 
 
 # ---------- MediaPipe hand tracker ----------
-
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(static_image_mode=False, max_num_hands=2)
 # Add this new view for hand tracking
-@api_view(['POST'])
+@api_view(["POST"])
 def track_hands(request):
     try:
         # Get base64 image from frontend
-        image_data = request.data.get('image')
-        
+        image_data = request.data.get("image")
+
         if not image_data:
-            return Response({'error': 'No image data provided'}, status=400)
-        
-        # Decode image
-        img_bytes = base64.b64decode(image_data.split(',')[1])
+            return Response({"error": "No image data provided"}, status=400)
+
+        # Handle "data:image/png;base64,..." prefix if present
+        if "," in image_data:
+            image_data = image_data.split(",", 1)[1]
+
+        # Decode base64 -> bytes -> numpy array -> OpenCV image
+        try:
+            img_bytes = base64.b64decode(image_data)
+        except Exception as e:
+            return Response({"error": f"Invalid base64 data: {e}"}, status=400)
+
         nparr = np.frombuffer(img_bytes, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
+        if frame is None:
+            return Response({"error": "Could not decode image"}, status=400)
+
         # Process with MediaPipe
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(rgb_frame)
-        
-        hand_data = []
+
+        hand_data: list[list[dict]] = []
+
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
                 landmarks = []
                 for landmark in hand_landmarks.landmark:
-                    landmarks.append({
-                        'x': landmark.x,
-                        'y': landmark.y,
-                        'z': landmark.z
-                    })
+                    landmarks.append(
+                        {
+                            "x": landmark.x,
+                            "y": landmark.y,
+                            "z": landmark.z,
+                        }
+                    )
                 hand_data.append(landmarks)
-        
-        return Response({'hands': hand_data})
-    
+
+        return Response({"hands": hand_data})
+
     except Exception as e:
-        return Response({'error': str(e)}, status=500)
+        # Final catch-all: return error as JSON instead of crashing
+        return Response({"error": str(e)}, status=500)
 # ---------- Login API ----------
 
 
