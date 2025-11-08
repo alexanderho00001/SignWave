@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react'; // Import useCallback
 
 const ASL_LETTERS = ['A', 'B', 'C', 'I', 'L', 'V', 'Y'];
 
@@ -13,18 +13,30 @@ export default function ASLPracticeLive() {
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [isTracking, setIsTracking] = useState(false);
-  const [justCompleted, setJustCompleted] = useState(false); // Prevent duplicate detections
+  
+  // FIX 1: Use a ref for the completion lock.
+  // This prevents stale state in closures.
+  const justCompletedRef = useRef(false);
+  
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // This effect runs once to start the webcam
   useEffect(() => {
     startWebcam();
     
+    // Cleanup function:
+    // This will run when the component is unmounted
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
+      // Stop webcam stream
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
     };
-  }, []);
+  }, []); // Empty array ensures this runs only once on mount
 
   const startWebcam = async () => {
     try {
@@ -40,8 +52,13 @@ export default function ASLPracticeLive() {
     }
   };
 
-  const checkSign = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  // FIX 2: Wrap checkSign in useCallback
+  // It will now only be remade when `currentLetter` changes.
+  const checkSign = useCallback(async () => {
+    // Check the ref. If we're waiting for the next letter, don't do anything.
+    if (!videoRef.current || !canvasRef.current || justCompletedRef.current) {
+      return;
+    }
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -67,63 +84,94 @@ export default function ASLPracticeLive() {
 
       const data = await response.json();
       
-      console.log('API Response:', data); // Debug
-      console.log('Current letter:', currentLetter); // Debug
-      console.log('isTracking:', isTracking, 'justCompleted:', justCompleted); // Debug tracking state
+      console.log('API Response:', data);
       
       if (data.letters && data.letters.length > 0) {
         const letter = data.letters[0];
-        console.log('Detected letter:', letter, 'Expected:', currentLetter, 'Match:', letter === currentLetter); // Debug
+        console.log('Detected letter:', letter, 'Expected:', currentLetter, 'Match:', letter === currentLetter);
         
         setDetectedLetter(letter);
         
+        // This `currentLetter` is guaranteed to be fresh because
+        // it's a dependency of the useCallback hook.
         const correct = letter === currentLetter;
         
-        // Only process if correct and not already processing
-        // Don't check isTracking here - if the interval is running, we're tracking
-        if (correct && !justCompleted) {
-          console.log('✅ Correct sign detected! Moving to next letter...'); // Debug
+        // Check the ref here
+        if (correct && !justCompletedRef.current) {
+          console.log('✅ Correct sign detected! Moving to next letter...');
           setIsCorrect(true);
-          setJustCompleted(true); // Prevent duplicate detections
-          setScore(prev => {
-            const newScore = prev + 1;
-            console.log(`Score updated: ${prev} -> ${newScore}`);
-            return newScore;
-          });
-          setAttempts(prev => {
-            const newAttempts = prev + 1;
-            console.log(`Attempts updated: ${prev} -> ${newAttempts}`);
-            return newAttempts;
-          });
+          justCompletedRef.current = true; // Set the lock
+          
+          // Use functional updates to be safe
+          setScore(prev => prev + 1);
+          setAttempts(prev => prev + 1);
           
           // Move to next letter after success
           setTimeout(() => {
-            console.log('Moving to next letter'); // Debug
+            console.log('Moving to next letter');
             const currentIndex = ASL_LETTERS.indexOf(currentLetter);
             const nextIndex = (currentIndex + 1) % ASL_LETTERS.length;
             const nextLetter = ASL_LETTERS[nextIndex];
+            
             console.log(`Changing from ${currentLetter} to ${nextLetter}`);
-            setCurrentLetter(nextLetter);
+            setCurrentLetter(nextLetter); // This will trigger a re-render
+            
             setIsCorrect(null);
             setDetectedLetter(null);
-            setJustCompleted(false); // Reset for next letter
+            justCompletedRef.current = false; // Reset the lock for the new letter
           }, 1500);
+          
         } else if (!correct) {
           setIsCorrect(false);
-          console.log('❌ Wrong sign. Expected:', currentLetter, 'Got:', letter); // Debug
-        } else if (justCompleted) {
-          console.log('⏭️ Already completed this letter, waiting...'); // Debug
+          console.log('❌ Wrong sign. Expected:', currentLetter, 'Got:', letter);
+        } else if (justCompletedRef.current) {
+          console.log('⏭️ Already completed this letter, waiting...');
         }
       } else {
         setDetectedLetter(null);
-        if (!justCompleted) {
+        // Only reset "isCorrect" if we're not in a success-lock
+        if (!justCompletedRef.current) {
           setIsCorrect(null);
         }
       }
     } catch (error) {
       console.error('Error checking sign:', error);
     }
-  };
+    // `currentLetter` is the only state variable from the outer scope
+    // that this function *reads* (and doesn't just set).
+  }, [currentLetter]); 
+
+  // FIX 3: Use useEffect to manage the interval
+  useEffect(() => {
+    if (isTracking) {
+      // If we are starting tracking, make sure the lock is reset
+      justCompletedRef.current = false;
+      
+      // Start the interval
+      intervalRef.current = setInterval(checkSign, 500);
+      console.log("Tracking started, interval set.");
+      
+    } else {
+      // Stop the interval if it exists
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+        console.log("Tracking stopped, interval cleared.");
+      }
+      // Clean up UI state
+      setDetectedLetter(null);
+      setIsCorrect(null);
+    }
+    
+    // Cleanup function for this effect
+    // This runs when `isTracking` or `checkSign` changes, *before*
+    // the new effect runs.
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [isTracking, checkSign]); // Re-run when tracking is toggled or checkSign is updated
 
   const nextLetter = () => {
     const currentIndex = ASL_LETTERS.indexOf(currentLetter);
@@ -131,7 +179,7 @@ export default function ASLPracticeLive() {
     setCurrentLetter(ASL_LETTERS[nextIndex]);
     setDetectedLetter(null);
     setIsCorrect(null);
-    setJustCompleted(false); // Reset for new letter
+    justCompletedRef.current = false; // Reset lock
   };
 
   const resetGame = () => {
@@ -140,21 +188,13 @@ export default function ASLPracticeLive() {
     setCurrentLetter(ASL_LETTERS[0]);
     setDetectedLetter(null);
     setIsCorrect(null);
+    justCompletedRef.current = false; // Reset lock
   };
 
+  // FIX 4: Simplify toggleTracking
+  // It just needs to toggle the state. The useEffect will handle the rest.
   const toggleTracking = () => {
-    if (!isTracking) {
-      setIsTracking(true);
-      intervalRef.current = setInterval(checkSign, 500); // Check every 500ms
-    } else {
-      setIsTracking(false);
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      setDetectedLetter(null);
-      setIsCorrect(null);
-    }
+    setIsTracking(prev => !prev);
   };
 
   return (
