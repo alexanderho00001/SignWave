@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import HandTracker from '@/components/HandTracker';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -36,6 +35,11 @@ export default function ASLAlphabetGame() {
     const animationFrameRef = useRef<number | null>(null);
     const lastSpawnTimeRef = useRef<number>(0);
     const gameStartTimeRef = useRef<number>(0);
+    
+    // Backend communication refs
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // Generate random letter
     const getRandomLetter = useCallback(() => {
@@ -104,6 +108,70 @@ export default function ASLAlphabetGame() {
         });
     }, []);
 
+    // Backend hand detection function
+    const detectHandSign = useCallback(async () => {
+        if (!videoRef.current || !canvasRef.current || gameState !== 'playing') {
+            return;
+        }
+
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        if (!context) return;
+        if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+        try {
+            const response = await fetch('http://localhost:8000/api/track-hands/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ image: imageData }),
+            });
+
+            const data = await response.json();
+            
+            if (data.letters && data.letters.length > 0) {
+                const letter = data.letters[0];
+                checkMatches(letter);
+            }
+        } catch (error) {
+            console.error('Error detecting hand sign:', error);
+        }
+    }, [gameState, checkMatches]);
+
+    // Start webcam
+    const startWebcam = useCallback(async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: 640, height: 480, facingMode: 'user' } 
+            });
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+            }
+        } catch (err) {
+            console.error("Error accessing webcam:", err);
+        }
+    }, []);
+
+    // Initialize webcam on mount
+    useEffect(() => {
+        startWebcam();
+        
+        return () => {
+            if (videoRef.current && videoRef.current.srcObject) {
+                const stream = videoRef.current.srcObject as MediaStream;
+                stream.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [startWebcam]);
+
     // Game loop
     useEffect(() => {
         if (gameState !== 'playing') {
@@ -140,24 +208,26 @@ export default function ASLAlphabetGame() {
         };
     }, [gameState, spawnLetter, updateLetters]);
 
-    // Simulate hand detection (for now, since backend isn't ready)
-    // In the future, this will be replaced with actual HandTracker integration
+    // Backend hand detection when game is playing
     useEffect(() => {
-        if (gameState !== 'playing') return;
-
-        // Simulate random detection for demo purposes
-        // TODO: Replace with actual HandTracker integration
-        const simulateDetection = setInterval(() => {
-            // For demo: randomly detect a letter
-            // In production, this will come from HandTracker component
-            if (Math.random() > 0.95) {
-                const randomLetter = getRandomLetter();
-                checkMatches(randomLetter);
+        if (gameState !== 'playing') {
+            if (detectionIntervalRef.current) {
+                clearInterval(detectionIntervalRef.current);
+                detectionIntervalRef.current = null;
             }
-        }, 500);
+            return;
+        }
 
-        return () => clearInterval(simulateDetection);
-    }, [gameState, checkMatches, getRandomLetter]);
+        // Start detecting hand signs every 500ms
+        detectionIntervalRef.current = setInterval(detectHandSign, 500);
+
+        return () => {
+            if (detectionIntervalRef.current) {
+                clearInterval(detectionIntervalRef.current);
+                detectionIntervalRef.current = null;
+            }
+        };
+    }, [gameState, detectHandSign]);
 
     const startGame = () => {
         setGameState('playing');
@@ -302,7 +372,21 @@ export default function ASLAlphabetGame() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="flex-1">
-                            <HandTracker />
+                            <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black">
+                                <video
+                                    ref={videoRef}
+                                    autoPlay
+                                    playsInline
+                                    muted
+                                    className="w-full h-full object-cover"
+                                />
+                                <canvas ref={canvasRef} className="hidden" />
+                                {gameState !== 'playing' && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                                        <p className="text-white text-sm">Start the game to begin tracking</p>
+                                    </div>
+                                )}
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -328,12 +412,6 @@ export default function ASLAlphabetGame() {
                                     <li>Lose a life if a letter reaches the bottom</li>
                                     <li>Game ends when you run out of lives</li>
                                 </ul>
-                                <div className="p-3 bg-muted rounded-lg">
-                                    <p className="text-xs text-muted-foreground">
-                                        <strong>Note:</strong> Hand detection is currently simulated for demo
-                                        purposes. Backend integration coming soon!
-                                    </p>
-                                </div>
                             </div>
                         </DialogContent>
                     </Dialog>
