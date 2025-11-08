@@ -26,7 +26,6 @@ export default function HandTracker() {
   const [handData, setHandData] = useState<HandData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [webcamError, setWebcamError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     startWebcam();
@@ -72,7 +71,6 @@ export default function HandTracker() {
     const imageData = canvas.toDataURL('image/jpeg');
 
     try {
-      setIsLoading(true);
       setError(null);
 
       const response = await fetch(
@@ -123,6 +121,7 @@ export default function HandTracker() {
           throw new Error('Server returned empty response');
         }
         data = JSON.parse(text);
+        console.log(data);
       } catch (parseError) {
         throw new Error(
           'Failed to parse server response. Invalid JSON format.',
@@ -140,7 +139,6 @@ export default function HandTracker() {
         setHandData([]);
         // Clear canvas
         context.clearRect(0, 0, canvas.width, canvas.height);
-        setIsLoading(false);
         return;
       }
 
@@ -205,8 +203,6 @@ export default function HandTracker() {
       setError(errorMessage);
       console.error('Error tracking hands:', error);
       setHandData(null);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -285,13 +281,6 @@ export default function HandTracker() {
             className="w-full rounded-lg border shadow-sm"
             style={{ display: isTracking ? 'block' : 'none' }}
           />
-          {isLoading && isTracking && (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/50 rounded-lg">
-              <div className="text-sm text-muted-foreground">
-                Processing...
-              </div>
-            </div>
-          )}
         </div>
 
         <Button
