@@ -1,1 +1,5 @@
 django
+opencv-python
+mediapipe
+djangorestframework
+django-cors-headers
