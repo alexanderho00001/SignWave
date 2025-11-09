@@ -321,9 +321,18 @@ def recognize_asl_letter(landmarks):
 @api_view(["POST"])
 def track_hands(request):
     """
-    Track hands and recognize static ASL letters (A, B, C, I, L, V, Y)
+    Track hands and recognize static ASL letters
     Used for the practice page
+    --- MODIFIED: Now uses the SigLIP ML Model ---
     """
+    
+    # Check if the model is even available
+    if not SIGLIP_AVAILABLE:
+        return Response({
+            'error': 'SigLIP model not available',
+            'message': 'Model failed to load. Check backend logs.'
+        }, status=503)
+
     try:
         # Get base64 image from frontend
         image_data = request.data.get("image")
@@ -347,33 +356,43 @@ def track_hands(request):
         if frame is None:
             return Response({"error": "Could not decode image"}, status=400)
 
-        # Process with MediaPipe
+        # --- NEW MODEL LOGIC ---
+        # 1. Convert BGR (OpenCV) to RGB (PIL)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(rgb_frame)
+        pil_image = Image.fromarray(rgb_frame)
+        
+        # 2. Process with SigLIP model
+        inputs = siglip_processor(images=pil_image, return_tensors="pt")
+        
+        with torch.no_grad():
+            outputs = siglip_model(**inputs)
+            logits = outputs.logits
+            probs = torch.nn.functional.softmax(logits, dim=1).squeeze().tolist()
+        
+        # 3. Map indices to letters
+        # (This label map must match the model's training)
+        labels = {
+            "0": "A", "1": "B", "2": "C", "3": "D", "4": "E", "5": "F", "6": "G", "7": "H", "8": "I", "9": "J",
+            "10": "K", "11": "L", "12": "M", "13": "N", "14": "O", "15": "P", "16": "Q", "17": "R", "18": "S", "19": "T",
+            "20": "U", "21": "V", "22": "W", "23": "X", "24": "Y", "25": "Z"
+        }
+        
+        # 4. Get the top prediction
+        top_prediction_index = np.argmax(probs)
+        top_prediction_letter = labels.get(str(top_prediction_index), "Unknown")
+        top_prediction_confidence = probs[top_prediction_index]
 
-        hand_data = []
+        # 5. Return in the format the frontend expects
+        # We only return the letter if confidence is high enough
         recognized_letters = []
-
-        if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                landmarks = []
-                for landmark in hand_landmarks.landmark:
-                    landmarks.append({
-                        "x": landmark.x,
-                        "y": landmark.y,
-                        "z": landmark.z,
-                    })
-                hand_data.append(landmarks)
-                
-                # Recognize the letter
-                letter = recognize_asl_letter(landmarks)
-                if letter:
-                    recognized_letters.append(letter)
+        if top_prediction_confidence > 0.5: # 50% confidence threshold
+            recognized_letters.append(top_prediction_letter)
 
         return Response({
-            "hands": hand_data,
+            "hands": [], # We don't use landmarks anymore, but send empty list
             "letters": recognized_letters
         })
+        # --- END OF NEW LOGIC ---
 
     except Exception as e:
         import traceback
