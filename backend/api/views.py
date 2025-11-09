@@ -33,12 +33,23 @@ try:
     
     # Load SigLIP model
     model_name = "prithivMLmods/Alphabet-Sign-Language-Detection"
-    siglip_model = SiglipForImageClassification.from_pretrained(model_name)
+    base_siglip_model = SiglipForImageClassification.from_pretrained(model_name)
     siglip_processor = AutoImageProcessor.from_pretrained(model_name)
+    
+    # Wrap with improved model
+    from .improved_siglip import ImprovedSigLIPModel
+    siglip_model = ImprovedSigLIPModel(
+        base_siglip_model,
+        siglip_processor,
+        smoothing_window=5,  # Average last 5 predictions
+        confidence_threshold=0.2  # Minimum confidence threshold
+    )
     SIGLIP_AVAILABLE = True
-    print("✅ SigLIP model loaded successfully")
+    print("✅ Improved SigLIP model loaded successfully")
 except Exception as e:
+    import traceback
     print(f"⚠️ SigLIP model not available: {e}")
+    print(traceback.format_exc())
     SIGLIP_AVAILABLE = False
     siglip_model = None
     siglip_processor = None
@@ -528,36 +539,43 @@ def test_siglip_model(request):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(rgb_frame)
         
-        # Process with SigLIP model
-        inputs = siglip_processor(images=pil_image, return_tensors="pt")
+        # Use improved model with smoothing and preprocessing
+        session_id = request.data.get('session_id', 'default')
+        reset_buffer = request.data.get('reset_buffer', False)
         
-        with torch.no_grad():
-            outputs = siglip_model(**inputs)
-            logits = outputs.logits
-            probs = torch.nn.functional.softmax(logits, dim=1).squeeze().tolist()
+        # Reset buffer if requested
+        if reset_buffer:
+            siglip_model.reset_buffer()
         
-        # Map indices to letters
-        labels = {
-            "0": "A", "1": "B", "2": "C", "3": "D", "4": "E", "5": "F", "6": "G", "7": "H", "8": "I", "9": "J",
-            "10": "K", "11": "L", "12": "M", "13": "N", "14": "O", "15": "P", "16": "Q", "17": "R", "18": "S", "19": "T",
-            "20": "U", "21": "V", "22": "W", "23": "X", "24": "Y", "25": "Z"
-        }
+        # Get predictions with smoothing
+        smoothed_predictions, raw_predictions = siglip_model.predict_with_smoothing(
+            pil_image,
+            use_hand_crop=True,  # Crop to hand region
+            use_preprocessing=True  # Apply image enhancement
+        )
         
-        # Get top predictions
-        predictions = {labels[str(i)]: round(probs[i], 4) for i in range(len(probs))}
+        # Get top prediction
+        top_letter, top_conf = siglip_model.get_top_prediction(smoothed_predictions)
+        
+        # Round predictions for response
+        predictions = {letter: round(conf, 4) for letter, conf in smoothed_predictions.items()}
+        raw_predictions_rounded = {letter: round(conf, 4) for letter, conf in raw_predictions.items()}
         
         # Sort by probability
         sorted_predictions = sorted(predictions.items(), key=lambda x: x[1], reverse=True)
-        top_prediction = sorted_predictions[0]
+        top_prediction = (top_letter or sorted_predictions[0][0], top_conf)
         
         return Response({
             'success': True,
             'top_prediction': {
                 'letter': top_prediction[0],
-                'confidence': top_prediction[1]
+                'confidence': round(top_prediction[1], 4)
             },
             'all_predictions': predictions,
-            'top_5': [{'letter': letter, 'confidence': conf} for letter, conf in sorted_predictions[:5]]
+            'raw_predictions': raw_predictions_rounded,  # Current frame without smoothing
+            'top_5': [{'letter': letter, 'confidence': conf} for letter, conf in sorted_predictions[:5]],
+            'buffer_size': len(siglip_model.prediction_buffer),
+            'hand_detected': True  # Will be False if no hand found in cropping
         })
         
     except Exception as e:

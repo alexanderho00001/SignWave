@@ -16,7 +16,10 @@ type ModelResponse = {
         confidence: number;
     };
     all_predictions: Record<string, number>;
+    raw_predictions?: Record<string, number>;
     top_5: Prediction[];
+    buffer_size?: number;
+    hand_detected?: boolean;
     error?: string;
 };
 
@@ -242,6 +245,24 @@ export default function TestModelPage() {
                                 📸 Capture & Test
                             </Button>
                         </div>
+                        <Button
+                            onClick={async () => {
+                                try {
+                                    await fetch('http://localhost:8000/api/test-siglip/', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ reset_buffer: true }),
+                                    });
+                                    setPredictions(null);
+                                } catch (err) {
+                                    console.error('Error resetting buffer:', err);
+                                }
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="w-full">
+                            🔄 Reset Prediction Buffer
+                        </Button>
                     </CardContent>
                 </Card>
 
@@ -272,9 +293,27 @@ export default function TestModelPage() {
 
                         {predictions && (
                             <div className="space-y-6">
+                                {/* Model Info */}
+                                {predictions.buffer_size !== undefined && (
+                                    <div className="p-3 rounded-lg bg-muted/50 text-sm">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-muted-foreground">Buffer Size:</span>
+                                            <span className="font-medium">{predictions.buffer_size}/5</span>
+                                        </div>
+                                        {predictions.hand_detected !== undefined && (
+                                            <div className="flex justify-between items-center mt-1">
+                                                <span className="text-muted-foreground">Hand Detected:</span>
+                                                <span className={`font-medium ${predictions.hand_detected ? 'text-green-600' : 'text-yellow-600'}`}>
+                                                    {predictions.hand_detected ? '✓ Yes' : '⚠ No'}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 {/* Top Prediction */}
                                 <div>
-                                    <h3 className="text-lg font-semibold mb-2">Top Prediction</h3>
+                                    <h3 className="text-lg font-semibold mb-2">Top Prediction (Smoothed)</h3>
                                     <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
                                         <div className="text-4xl font-bold text-primary mb-1">
                                             {predictions.top_prediction.letter}
@@ -282,6 +321,16 @@ export default function TestModelPage() {
                                         <div className="text-sm text-muted-foreground">
                                             Confidence: {(predictions.top_prediction.confidence * 100).toFixed(2)}%
                                         </div>
+                                        {predictions.raw_predictions && (
+                                            <div className="mt-2 pt-2 border-t border-primary/20">
+                                                <div className="text-xs text-muted-foreground">
+                                                    Raw (current frame): {Object.entries(predictions.raw_predictions)
+                                                        .sort(([, a], [, b]) => b - a)[0][0]} 
+                                                    ({(Object.entries(predictions.raw_predictions)
+                                                        .sort(([, a], [, b]) => b - a)[0][1] * 100).toFixed(1)}%)
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
