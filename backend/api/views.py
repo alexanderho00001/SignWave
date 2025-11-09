@@ -17,6 +17,32 @@ import math
 # Import the pre-trained model
 from .asl_pretrained_model import ASLPretrainedModel
 
+# Import SigLIP model for alphabet detection
+try:
+    import sys
+    import os
+    # Add play directory to path
+    play_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'play')
+    if play_dir not in sys.path:
+        sys.path.insert(0, play_dir)
+    
+    from transformers import AutoImageProcessor, SiglipForImageClassification
+    from transformers.image_utils import load_image
+    from PIL import Image
+    import torch
+    
+    # Load SigLIP model
+    model_name = "prithivMLmods/Alphabet-Sign-Language-Detection"
+    siglip_model = SiglipForImageClassification.from_pretrained(model_name)
+    siglip_processor = AutoImageProcessor.from_pretrained(model_name)
+    SIGLIP_AVAILABLE = True
+    print("✅ SigLIP model loaded successfully")
+except Exception as e:
+    print(f"⚠️ SigLIP model not available: {e}")
+    SIGLIP_AVAILABLE = False
+    siglip_model = None
+    siglip_processor = None
+
 # Import progress models (if they exist)
 try:
     from progress.models import Lesson, UserProgress
@@ -468,6 +494,80 @@ def check_model_status(request):
         'input_shape': str(asl_model.model.input_shape) if asl_model.model else None,
         'output_shape': str(asl_model.model.output_shape) if asl_model.model else None
     })
+
+
+@api_view(['POST'])
+def test_siglip_model(request):
+    """
+    Test the SigLIP model from play/model.py
+    Accepts an image and returns predictions for all 26 alphabet letters
+    """
+    if not SIGLIP_AVAILABLE:
+        return Response({
+            'error': 'SigLIP model not available',
+            'message': 'Model failed to load. Check backend logs.'
+        }, status=503)
+    
+    try:
+        image_data = request.data.get('image')
+        if not image_data:
+            return Response({'error': 'No image data provided'}, status=400)
+        
+        # Decode base64 image
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+        
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return Response({'error': 'Failed to decode image'}, status=400)
+        
+        # Convert BGR to RGB
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(rgb_frame)
+        
+        # Process with SigLIP model
+        inputs = siglip_processor(images=pil_image, return_tensors="pt")
+        
+        with torch.no_grad():
+            outputs = siglip_model(**inputs)
+            logits = outputs.logits
+            probs = torch.nn.functional.softmax(logits, dim=1).squeeze().tolist()
+        
+        # Map indices to letters
+        labels = {
+            "0": "A", "1": "B", "2": "C", "3": "D", "4": "E", "5": "F", "6": "G", "7": "H", "8": "I", "9": "J",
+            "10": "K", "11": "L", "12": "M", "13": "N", "14": "O", "15": "P", "16": "Q", "17": "R", "18": "S", "19": "T",
+            "20": "U", "21": "V", "22": "W", "23": "X", "24": "Y", "25": "Z"
+        }
+        
+        # Get top predictions
+        predictions = {labels[str(i)]: round(probs[i], 4) for i in range(len(probs))}
+        
+        # Sort by probability
+        sorted_predictions = sorted(predictions.items(), key=lambda x: x[1], reverse=True)
+        top_prediction = sorted_predictions[0]
+        
+        return Response({
+            'success': True,
+            'top_prediction': {
+                'letter': top_prediction[0],
+                'confidence': top_prediction[1]
+            },
+            'all_predictions': predictions,
+            'top_5': [{'letter': letter, 'confidence': conf} for letter, conf in sorted_predictions[:5]]
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in test_siglip_model: {str(e)}")
+        print(traceback.format_exc())
+        return Response({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }, status=500)
 
 
 # ---------- Progress Tracking API (optional) ----------
