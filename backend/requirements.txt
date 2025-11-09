@@ -1,0 +1,10 @@
+django
+opencv-python
+mediapipe
+djangorestframework
+django-cors-headers
+torch
+numpy
+tensorflow
+gradio
+transformers

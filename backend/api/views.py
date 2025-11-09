@@ -13,9 +13,58 @@ from rest_framework.response import Response
 import base64
 import numpy as np
 import math
+import tensorflow as tf
 
 # Import the pre-trained model
 from .asl_pretrained_model import ASLPretrainedModel
+
+from .islr_loader import (
+    islr_model,
+    idx_to_sign,
+    holistic,
+    sequence_buffers,
+    SEQ_LEN,
+    THRESH_HOLD,
+)
+
+from .src.landmarks_extraction import extract_coordinates
+
+# Import SigLIP model for alphabet detection
+# try:
+#     import sys
+#     import os
+#     # Add play directory to path
+#     play_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'play')
+#     if play_dir not in sys.path:
+#         sys.path.insert(0, play_dir)
+    
+#     from transformers import AutoImageProcessor, SiglipForImageClassification
+#     from transformers.image_utils import load_image
+#     from PIL import Image
+#     import torch
+    
+#     # Load SigLIP model
+#     model_name = "prithivMLmods/Alphabet-Sign-Language-Detection"
+#     base_siglip_model = SiglipForImageClassification.from_pretrained(model_name)
+#     siglip_processor = AutoImageProcessor.from_pretrained(model_name)
+    
+#     # Wrap with improved model
+#     from .improved_siglip import ImprovedSigLIPModel
+#     siglip_model = ImprovedSigLIPModel(
+#         base_siglip_model,
+#         siglip_processor,
+#         smoothing_window=5,  # Average last 5 predictions
+#         confidence_threshold=0.2  # Minimum confidence threshold
+#     )
+#     SIGLIP_AVAILABLE = True
+#     print("✅ Improved SigLIP model loaded successfully")
+# except Exception as e:
+#     import traceback
+#     print(f"⚠️ SigLIP model not available: {e}")
+#     print(traceback.format_exc())
+#     SIGLIP_AVAILABLE = False
+#     siglip_model = None
+#     siglip_processor = None
 
 # Import progress models (if they exist)
 try:
@@ -28,8 +77,6 @@ except ImportError:
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.5)
 
-# Initialize pre-trained model for video sequences
-asl_model = ASLPretrainedModel()
 
 # Buffer to store sequences for video recognition
 sequence_buffers = {}
@@ -290,6 +337,171 @@ def recognize_asl_letter(landmarks):
     print(f"❌ No letter match")
     return None
 
+def recognize_asl_number(landmarks):
+    """
+    Recognizes ASL numbers 0-9.
+    This logic assumes a vertical hand orientation.
+    """
+    if not landmarks or len(landmarks) != 21:
+        print(f"❌ Invalid landmarks for number")
+        return None
+
+    # Get key landmark positions
+    thumb_tip = landmarks[4]
+    index_tip = landmarks[8]
+    middle_tip = landmarks[12]
+    ring_tip = landmarks[16]
+    pinky_tip = landmarks[20]
+    
+    thumb_ip = landmarks[3] # Thumb knuckle
+    index_mcp = landmarks[5]
+    middle_mcp = landmarks[9]
+    ring_mcp = landmarks[13]
+    pinky_mcp = landmarks[17]
+
+    # --- Helpers ---
+    def is_finger_up(tip, mcp):
+        # Using the same "vertical up" logic
+        return tip['y'] < mcp['y'] - 0.05 
+
+    def is_thumb_up(tip, ip_knuckle):
+        # Thumb "up" is more about being above its own knuckle
+        return tip['y'] < ip_knuckle['y']
+    
+    # --- Get Finger States ---
+    index_up = is_finger_up(index_tip, index_mcp)
+    middle_up = is_finger_up(middle_tip, middle_mcp)
+    ring_up = is_finger_up(ring_tip, ring_mcp)
+    pinky_up = is_finger_up(pinky_tip, pinky_mcp)
+    thumb_up = is_thumb_up(thumb_tip, thumb_ip)
+    
+    print(f"    DEBUG (Num): I_up={index_up}, M_up={middle_up}, R_up={ring_up}, P_up={pinky_up}")
+    
+    # --- Get Distances for 6, 7, 8, 9 ---
+    TOUCH_THRESHOLD = 0.06
+    thumb_to_index_dist = get_distance(thumb_tip, index_tip)
+    thumb_to_middle_dist = get_distance(thumb_tip, middle_tip)
+    thumb_to_ring_dist = get_distance(thumb_tip, ring_tip)
+    thumb_to_pinky_dist = get_distance(thumb_tip, pinky_tip)
+
+    # --- Number Logic (Order is Critical!) ---
+
+    # --- MODIFIED: Correct logic for 6, 7, 8, 9 ---
+    
+    # 9: Index finger touches thumb. Middle, Ring, Pinky are UP.
+    if (middle_up and ring_up and pinky_up) and (not index_up) and (thumb_to_index_dist < TOUCH_THRESHOLD):
+        print("✅ Recognized: 9")
+        return '9'
+        
+    # 8: Middle finger touches thumb. Index, Ring, Pinky are UP.
+    if (index_up and ring_up and pinky_up) and (not middle_up) and (thumb_to_middle_dist < TOUCH_THRESHOLD):
+        print("✅ Recognized: 8")
+        return '8'
+
+    # 7: Ring finger touches thumb. Index, Middle, Pinky are UP.
+    if (index_up and middle_up and pinky_up) and (not ring_up) and (thumb_to_ring_dist < TOUCH_THRESHOLD):
+        print(f"    DEBUG (7?): RingDist={thumb_to_ring_dist:.4f} (Threshold={TOUCH_THRESHOLD})")
+        print("✅ Recognized: 7")
+        return '7'
+
+    # 6: Pinky finger touches thumb. Index, Middle, Ring are UP.
+    if (index_up and middle_up and ring_up) and (not pinky_up) and (thumb_to_pinky_dist < TOUCH_THRESHOLD):
+        print("✅ Recognized: 6")
+        return '6'
+    
+    # ---
+
+    # 5: All 5 fingers up
+    if index_up and middle_up and ring_up and pinky_up and thumb_up:
+        print("✅ Recognized: 5")
+        return '5'
+        
+    # 4: 4 fingers up (no thumb)
+    if index_up and middle_up and ring_up and pinky_up:
+        print("✅ Recognized: 4")
+        return '4'
+        
+    # 3: Index, Middle, and Thumb up
+    if index_up and middle_up and thumb_up and not ring_up and not pinky_up:
+        print("✅ Recognized: 3")
+        return '3'
+
+    # 2: Index and Middle up (like 'V')
+    if index_up and middle_up and not ring_up and not pinky_up:
+        print("✅ Recognized: 2")
+        return '2'
+        
+    # 1: Index up (like 'D')
+    if index_up and not middle_up and not ring_up and not pinky_up:
+        print("✅ Recognized: 1")
+        return '1'
+        
+    # 0: Closed fist (like 'A'/'E')
+    all_fingers_down = not index_up and not middle_up and not ring_up and not pinky_up
+    if all_fingers_down:
+        print("✅ Recognized: 0")
+        return '0'
+        
+    print(f"❌ No number match")
+    return None
+
+# --- NEW API ENDPOINT ---
+@api_view(["POST"])
+def track_asl_numbers(request):
+    """
+    Track hands and recognize static ASL numbers (0-9)
+    Used for the number practice page
+    """
+    try:
+        # Get base64 image from frontend
+        image_data = request.data.get("image")
+        if not image_data:
+            return Response({"error": "No image data provided"}, status=400)
+
+        if "," in image_data:
+            image_data = image_data.split(",", 1)[1]
+
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return Response({"error": "Could not decode image"}, status=400)
+
+        # Process with MediaPipe
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(rgb_frame)
+
+        hand_data = []
+        recognized_numbers = []
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                landmarks = []
+                for landmark in hand_landmarks.landmark:
+                    landmarks.append({
+                        "x": landmark.x,
+                        "y": landmark.y,
+                        "z": landmark.z,
+                    })
+                hand_data.append(landmarks)
+                
+                # --- MODIFIED: Call the new number function ---
+                number = recognize_asl_number(landmarks)
+                if number:
+                    recognized_numbers.append(number)
+
+        return Response({
+            "hands": hand_data,
+            "letters": recognized_numbers  # Frontend expects a 'letters' key
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"Error in track_asl_numbers: {str(e)}")
+        print(traceback.format_exc())
+        return Response({"error": str(e)}, status=500)
+
 # ---------- Hand Tracking APIs ----------
 
 @api_view(["POST"])
@@ -356,82 +568,128 @@ def track_hands(request):
         return Response({"error": str(e)}, status=500)
 
 
+
 @api_view(['POST'])
 def track_video_sequence(request):
     """
-    Track hands in video and recognize signs using pre-trained LSTM
-    Used for the recognize page (full words like hello, thanks, iloveyou)
+    Track landmarks over time and run the 209sontung Transformer model.
+    Used for the 'recognize' page (full words).
     """
+
+    # Make sure the backend model actually loaded
+    if islr_model is None:
+        return Response(
+            {"error": "ISLR model not loaded on backend"},
+            status=503,
+        )
+
     try:
         session_id = request.data.get('session_id', 'default')
         image_data = request.data.get('image')
         reset = request.data.get('reset', False)
-        
-        # Reset buffer if requested
+
+        # Reset the per-session buffer if requested
         if reset:
-            if session_id in sequence_buffers:
-                sequence_buffers[session_id] = []
-            return Response({'message': 'Buffer reset'})
-        
-        if not image_data:
-            return Response({'error': 'No image data provided'}, status=400)
-        
-        # Initialize buffer if doesn't exist
-        if session_id not in sequence_buffers:
             sequence_buffers[session_id] = []
-        
-        # Decode image
-        img_bytes = base64.b64decode(image_data.split(',')[1])
-        nparr = np.frombuffer(img_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        # Process with MediaPipe
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(rgb_frame)
-        
-        predicted_sign = None
-        confidence = 0
-        
-        if results.multi_hand_landmarks:
-            # Get first hand landmarks
-            landmarks = []
-            for landmark in results.multi_hand_landmarks[0].landmark:
-                landmarks.append({
-                    'x': landmark.x,
-                    'y': landmark.y,
-                    'z': landmark.z
-                })
-            
-            # Add to sequence buffer
-            sequence_buffers[session_id].append(landmarks)
-            
-            # Keep buffer at max length (30 frames)
-            max_length = 30
-            if len(sequence_buffers[session_id]) > max_length:
-                sequence_buffers[session_id].pop(0)
-            
-            # Try to recognize sign if we have enough frames
-            if len(sequence_buffers[session_id]) >= 20:
-                predicted_sign, confidence = asl_model.predict(sequence_buffers[session_id])
-            
             return Response({
-                'landmarks': landmarks,
-                'buffer_length': len(sequence_buffers[session_id]),
-                'predicted_sign': predicted_sign,
-                'confidence': round(confidence * 100, 2) if confidence else 0,
-                'model_loaded': asl_model.model is not None
-            })
-        else:
-            # No hand detected
-            return Response({
-                'landmarks': None,
-                'buffer_length': len(sequence_buffers[session_id]),
+                'message': 'Buffer reset',
+                'buffer_length': 0,
                 'predicted_sign': None,
                 'confidence': 0,
-                'message': 'No hand detected',
-                'model_loaded': asl_model.model is not None
             })
-        
+
+        if not image_data:
+            return Response({'error': 'No image data provided'}, status=400)
+
+        # Strip "data:image/...;base64," prefix if present
+        if ',' in image_data:
+            image_data = image_data.split(',', 1)[1]
+
+        # Decode base64 → OpenCV frame
+        try:
+            img_bytes = base64.b64decode(image_data)
+        except Exception as e:
+            return Response({'error': f'Invalid base64 data: {e}'}, status=400)
+
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return Response({"error": "Could not decode image"}, status=400)
+
+        # Run MediaPipe Holistic (face + pose + both hands)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = holistic.process(rgb_frame)
+
+        # --- Build landmarks for this frame (like main.py) ---
+        try:
+            landmarks_arr = extract_coordinates(results)  # shape (543, 3)
+        except Exception:
+            # Fallback if mediapipe failed → use zeros
+            landmarks_arr = np.zeros((468 + 21 + 33 + 21, 3), dtype=np.float32)
+
+        if session_id not in sequence_buffers:
+            sequence_buffers[session_id] = []
+
+        sequence_buffers[session_id].append(landmarks_arr)
+        buffer_len = len(sequence_buffers[session_id])
+
+        predicted_sign = None
+        confidence = 0.0
+
+        # DEBUG LOG
+        print(
+            f"[track_video_sequence] session={session_id} "
+            f"buffer_len={buffer_len} SEQ_LEN={SEQ_LEN}"
+        )
+
+        # --- Run the model once we have SEQ_LEN frames ---
+        if buffer_len == SEQ_LEN:
+            # Use exactly the last SEQ_LEN frames
+            seq = np.array(sequence_buffers[session_id], dtype=np.float32)
+            prediction = islr_model(seq)["outputs"]
+
+            if isinstance(prediction, tf.Tensor):
+                pred_np = prediction.numpy()
+            else:
+                pred_np = np.array(prediction)
+
+            max_val = float(np.max(pred_np, axis=-1))
+            idx = int(np.argmax(pred_np, axis=-1))
+            confidence = max_val * 100.0
+
+            sign_name = idx_to_sign.get(idx, "<?>")
+            print(
+                f"[track_video_sequence] session={session_id} "
+                f"raw_max={max_val:.3f} idx={idx} sign={sign_name}"
+            )
+
+            if max_val > THRESH_HOLD:
+                predicted_sign = idx_to_sign.get(idx)
+            sequence_buffers[session_id] = []
+
+        landmarks_list = landmarks_arr.tolist()
+
+        # 🔧 Ensure confidence is a finite float
+        if not np.isfinite(confidence):
+            confidence = 0.0
+
+        landmarks_clean = np.nan_to_num(
+            landmarks_arr,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        )
+        landmarks_list = landmarks_clean.tolist()
+        return Response({
+            'landmarks': landmarks_list,
+            'buffer_length': len(sequence_buffers.get(session_id, [])),
+            'predicted_sign': predicted_sign,
+            'confidence': float(round(confidence, 2)),
+            'model_loaded': True,
+            'session_id': session_id,
+        })
+
     except Exception as e:
         import traceback
         print(f"Error in track_video_sequence: {str(e)}")
@@ -442,17 +700,15 @@ def track_video_sequence(request):
         }, status=500)
 
 
+
 # ---------- Model Status APIs ----------
 
 @api_view(['GET'])
 def get_available_signs(request):
-    """
-    Get list of signs the model can recognize
-    """
     return Response({
-        'signs': asl_model.actions if asl_model.model else [],
         'model_loaded': asl_model.model is not None,
-        'model_path': asl_model.model_path
+        'num_signs': asl_model.num_actions,
+        'signs': asl_model.actions,
     })
 
 
@@ -468,6 +724,87 @@ def check_model_status(request):
         'input_shape': str(asl_model.model.input_shape) if asl_model.model else None,
         'output_shape': str(asl_model.model.output_shape) if asl_model.model else None
     })
+
+
+@api_view(['POST'])
+def test_siglip_model(request):
+    """
+    Test the SigLIP model from play/model.py
+    Accepts an image and returns predictions for all 26 alphabet letters
+    """
+    if not SIGLIP_AVAILABLE:
+        return Response({
+            'error': 'SigLIP model not available',
+            'message': 'Model failed to load. Check backend logs.'
+        }, status=503)
+    
+    try:
+        image_data = request.data.get('image')
+        if not image_data:
+            return Response({'error': 'No image data provided'}, status=400)
+        
+        # Decode base64 image
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+        
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return Response({'error': 'Failed to decode image'}, status=400)
+        
+        # Convert BGR to RGB
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(rgb_frame)
+        
+        # Use improved model with smoothing and preprocessing
+        session_id = request.data.get('session_id', 'default')
+        reset_buffer = request.data.get('reset_buffer', False)
+        
+        # Reset buffer if requested
+        if reset_buffer:
+            siglip_model.reset_buffer()
+        
+        # Get predictions with smoothing
+        smoothed_predictions, raw_predictions = siglip_model.predict_with_smoothing(
+            pil_image,
+            use_hand_crop=True,  # Crop to hand region
+            use_preprocessing=True  # Apply image enhancement
+        )
+        
+        # Get top prediction
+        top_letter, top_conf = siglip_model.get_top_prediction(smoothed_predictions)
+        
+        # Round predictions for response
+        predictions = {letter: round(conf, 4) for letter, conf in smoothed_predictions.items()}
+        raw_predictions_rounded = {letter: round(conf, 4) for letter, conf in raw_predictions.items()}
+        
+        # Sort by probability
+        sorted_predictions = sorted(predictions.items(), key=lambda x: x[1], reverse=True)
+        top_prediction = (top_letter or sorted_predictions[0][0], top_conf)
+        
+        return Response({
+            'success': True,
+            'top_prediction': {
+                'letter': top_prediction[0],
+                'confidence': round(top_prediction[1], 4)
+            },
+            'all_predictions': predictions,
+            'raw_predictions': raw_predictions_rounded,  # Current frame without smoothing
+            'top_5': [{'letter': letter, 'confidence': conf} for letter, conf in sorted_predictions[:5]],
+            'buffer_size': len(siglip_model.prediction_buffer),
+            'hand_detected': True  # Will be False if no hand found in cropping
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in test_siglip_model: {str(e)}")
+        print(traceback.format_exc())
+        return Response({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }, status=500)
 
 
 # ---------- Progress Tracking API (optional) ----------
