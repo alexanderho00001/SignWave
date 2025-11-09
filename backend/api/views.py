@@ -290,6 +290,171 @@ def recognize_asl_letter(landmarks):
     print(f"❌ No letter match")
     return None
 
+def recognize_asl_number(landmarks):
+    """
+    Recognizes ASL numbers 0-9.
+    This logic assumes a vertical hand orientation.
+    """
+    if not landmarks or len(landmarks) != 21:
+        print(f"❌ Invalid landmarks for number")
+        return None
+
+    # Get key landmark positions
+    thumb_tip = landmarks[4]
+    index_tip = landmarks[8]
+    middle_tip = landmarks[12]
+    ring_tip = landmarks[16]
+    pinky_tip = landmarks[20]
+    
+    thumb_ip = landmarks[3] # Thumb knuckle
+    index_mcp = landmarks[5]
+    middle_mcp = landmarks[9]
+    ring_mcp = landmarks[13]
+    pinky_mcp = landmarks[17]
+
+    # --- Helpers ---
+    def is_finger_up(tip, mcp):
+        # Using the same "vertical up" logic
+        return tip['y'] < mcp['y'] - 0.05 
+
+    def is_thumb_up(tip, ip_knuckle):
+        # Thumb "up" is more about being above its own knuckle
+        return tip['y'] < ip_knuckle['y']
+    
+    # --- Get Finger States ---
+    index_up = is_finger_up(index_tip, index_mcp)
+    middle_up = is_finger_up(middle_tip, middle_mcp)
+    ring_up = is_finger_up(ring_tip, ring_mcp)
+    pinky_up = is_finger_up(pinky_tip, pinky_mcp)
+    thumb_up = is_thumb_up(thumb_tip, thumb_ip)
+    
+    print(f"    DEBUG (Num): I_up={index_up}, M_up={middle_up}, R_up={ring_up}, P_up={pinky_up}")
+    
+    # --- Get Distances for 6, 7, 8, 9 ---
+    TOUCH_THRESHOLD = 0.06
+    thumb_to_index_dist = get_distance(thumb_tip, index_tip)
+    thumb_to_middle_dist = get_distance(thumb_tip, middle_tip)
+    thumb_to_ring_dist = get_distance(thumb_tip, ring_tip)
+    thumb_to_pinky_dist = get_distance(thumb_tip, pinky_tip)
+
+    # --- Number Logic (Order is Critical!) ---
+
+    # --- MODIFIED: Correct logic for 6, 7, 8, 9 ---
+    
+    # 9: Index finger touches thumb. Middle, Ring, Pinky are UP.
+    if (middle_up and ring_up and pinky_up) and (not index_up) and (thumb_to_index_dist < TOUCH_THRESHOLD):
+        print("✅ Recognized: 9")
+        return '9'
+        
+    # 8: Middle finger touches thumb. Index, Ring, Pinky are UP.
+    if (index_up and ring_up and pinky_up) and (not middle_up) and (thumb_to_middle_dist < TOUCH_THRESHOLD):
+        print("✅ Recognized: 8")
+        return '8'
+
+    # 7: Ring finger touches thumb. Index, Middle, Pinky are UP.
+    if (index_up and middle_up and pinky_up) and (not ring_up) and (thumb_to_ring_dist < TOUCH_THRESHOLD):
+        print(f"    DEBUG (7?): RingDist={thumb_to_ring_dist:.4f} (Threshold={TOUCH_THRESHOLD})")
+        print("✅ Recognized: 7")
+        return '7'
+
+    # 6: Pinky finger touches thumb. Index, Middle, Ring are UP.
+    if (index_up and middle_up and ring_up) and (not pinky_up) and (thumb_to_pinky_dist < TOUCH_THRESHOLD):
+        print("✅ Recognized: 6")
+        return '6'
+    
+    # ---
+
+    # 5: All 5 fingers up
+    if index_up and middle_up and ring_up and pinky_up and thumb_up:
+        print("✅ Recognized: 5")
+        return '5'
+        
+    # 4: 4 fingers up (no thumb)
+    if index_up and middle_up and ring_up and pinky_up:
+        print("✅ Recognized: 4")
+        return '4'
+        
+    # 3: Index, Middle, and Thumb up
+    if index_up and middle_up and thumb_up and not ring_up and not pinky_up:
+        print("✅ Recognized: 3")
+        return '3'
+
+    # 2: Index and Middle up (like 'V')
+    if index_up and middle_up and not ring_up and not pinky_up:
+        print("✅ Recognized: 2")
+        return '2'
+        
+    # 1: Index up (like 'D')
+    if index_up and not middle_up and not ring_up and not pinky_up:
+        print("✅ Recognized: 1")
+        return '1'
+        
+    # 0: Closed fist (like 'A'/'E')
+    all_fingers_down = not index_up and not middle_up and not ring_up and not pinky_up
+    if all_fingers_down:
+        print("✅ Recognized: 0")
+        return '0'
+        
+    print(f"❌ No number match")
+    return None
+
+# --- NEW API ENDPOINT ---
+@api_view(["POST"])
+def track_asl_numbers(request):
+    """
+    Track hands and recognize static ASL numbers (0-9)
+    Used for the number practice page
+    """
+    try:
+        # Get base64 image from frontend
+        image_data = request.data.get("image")
+        if not image_data:
+            return Response({"error": "No image data provided"}, status=400)
+
+        if "," in image_data:
+            image_data = image_data.split(",", 1)[1]
+
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return Response({"error": "Could not decode image"}, status=400)
+
+        # Process with MediaPipe
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(rgb_frame)
+
+        hand_data = []
+        recognized_numbers = []
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                landmarks = []
+                for landmark in hand_landmarks.landmark:
+                    landmarks.append({
+                        "x": landmark.x,
+                        "y": landmark.y,
+                        "z": landmark.z,
+                    })
+                hand_data.append(landmarks)
+                
+                # --- MODIFIED: Call the new number function ---
+                number = recognize_asl_number(landmarks)
+                if number:
+                    recognized_numbers.append(number)
+
+        return Response({
+            "hands": hand_data,
+            "letters": recognized_numbers  # Frontend expects a 'letters' key
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"Error in track_asl_numbers: {str(e)}")
+        print(traceback.format_exc())
+        return Response({"error": str(e)}, status=500)
+
 # ---------- Hand Tracking APIs ----------
 
 @api_view(["POST"])
