@@ -36,7 +36,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("http://localhost:8000/api/login/", {
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -45,9 +45,19 @@ export default function LoginPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || "Login failed");
+        throw new Error(data.error || data.detail || "Login failed");
       }
 
+      const data = await res.json();
+      
+      // Store user info in localStorage for easy access
+      if (data.user) {
+        localStorage.setItem('userId', data.user.id);
+        localStorage.setItem('userName', data.user.name);
+        localStorage.setItem('username', data.user.username);
+      }
+
+      // Redirect to dashboard after successful login
       router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Something went wrong");
