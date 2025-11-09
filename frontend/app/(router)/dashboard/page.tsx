@@ -18,38 +18,45 @@ type ProgressItem = {
 const LESSONS = [
     {
         slug: 'asl-alphabet',
+        link: '/lessons/asl-alphabet',
         title: 'Learn the ABCs',
         description: 'Learn the ASL alphabet and practice fingerspelling.',
     },
     {
         slug: 'asl-numbers-1-10',
         title: 'Numbers 1–10',
+        link: '/lessons/asl-numbers',
         description: 'Count from 1 to 10 using ASL.',
+    },
+    {
+        slug: 'asl-basic-words',
+        title: 'Learn Basic Words',
+        link: '/lessons/asl-basics',
+        description: 'Learn basic words and practice fingerspelling.',
     },
     {
         slug: 'game-asl-alphabet',
         title: 'Alphabet Exercise',
+        link: '/games/asl-alphabet',
         description: 'Practice the alphabet with a game.',
     },
     {
         slug: 'game-asl-numbers',
         title: 'Numbers Exercise',
+        link: '/games/asl-numbers',
         description: 'Practice the numbers with simple arithmetic.',
     },
+    {
+        slug: 'game-asl-basic-words',
+        title: 'Basic Words Exercise',
+        link: '/games/asl-basics',
+        description: 'Practice basic words with a game.',
+    }
 ];
 
 // Map lesson slugs to their routes
-const getRouteForSlug = (slug: string): string => {
-    if (slug === 'asl-alphabet') {
-        return '/lessons/asl-alphabet';
-    } else if (slug === 'asl-numbers-1-10') {
-        return '/lessons/asl-numbers';
-    } else if (slug === 'game-asl-alphabet') {
-        return '/games/asl-alphabet';
-    } else if (slug === 'game-asl-numbers') {
-        return '/games/asl-numbers';
-    }
-    return '/dashboard';
+const getRouteForLink = (link: string): string => {
+    return link;
 };
 
 export default function LessonsPage() {
@@ -178,7 +185,7 @@ export default function LessonsPage() {
                                     <Button
                                         onClick={(event) => {
                                             event.stopPropagation();
-                                            const route = getRouteForSlug(item.slug);
+                                            const route = getRouteForLink(item.link);
                                             router.push(route);
                                         }}
                                         size="sm"
@@ -191,8 +198,8 @@ export default function LessonsPage() {
                                         size="sm"
                                         onClick={(event) => {
                                             event.stopPropagation();
-                                            const route = getRouteForSlug(item.slug);
-                                            router.push(route);
+                                            const route = getRouteForLink(item.slug);
+                                            router.push(item.link);
                                         }}
                                         className="shrink-0 cursor-pointer">
                                         Review
