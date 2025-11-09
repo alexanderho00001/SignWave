@@ -17,6 +17,43 @@ import math
 # Import the pre-trained model
 from .asl_pretrained_model import ASLPretrainedModel
 
+# Import SigLIP model for alphabet detection
+try:
+    import sys
+    import os
+    # Add play directory to path
+    play_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'play')
+    if play_dir not in sys.path:
+        sys.path.insert(0, play_dir)
+    
+    from transformers import AutoImageProcessor, SiglipForImageClassification
+    from transformers.image_utils import load_image
+    from PIL import Image
+    import torch
+    
+    # Load SigLIP model
+    model_name = "prithivMLmods/Alphabet-Sign-Language-Detection"
+    base_siglip_model = SiglipForImageClassification.from_pretrained(model_name)
+    siglip_processor = AutoImageProcessor.from_pretrained(model_name)
+    
+    # Wrap with improved model
+    from .improved_siglip import ImprovedSigLIPModel
+    siglip_model = ImprovedSigLIPModel(
+        base_siglip_model,
+        siglip_processor,
+        smoothing_window=5,  # Average last 5 predictions
+        confidence_threshold=0.2  # Minimum confidence threshold
+    )
+    SIGLIP_AVAILABLE = True
+    print("✅ Improved SigLIP model loaded successfully")
+except Exception as e:
+    import traceback
+    print(f"⚠️ SigLIP model not available: {e}")
+    print(traceback.format_exc())
+    SIGLIP_AVAILABLE = False
+    siglip_model = None
+    siglip_processor = None
+
 # Import progress models (if they exist)
 try:
     from progress.models import Lesson, UserProgress
@@ -295,9 +332,18 @@ def recognize_asl_letter(landmarks):
 @api_view(["POST"])
 def track_hands(request):
     """
-    Track hands and recognize static ASL letters (A, B, C, I, L, V, Y)
+    Track hands and recognize static ASL letters
     Used for the practice page
+    --- MODIFIED: Now uses the SigLIP ML Model ---
     """
+    
+    # Check if the model is even available
+    if not SIGLIP_AVAILABLE:
+        return Response({
+            'error': 'SigLIP model not available',
+            'message': 'Model failed to load. Check backend logs.'
+        }, status=503)
+
     try:
         # Get base64 image from frontend
         image_data = request.data.get("image")
@@ -321,33 +367,43 @@ def track_hands(request):
         if frame is None:
             return Response({"error": "Could not decode image"}, status=400)
 
-        # Process with MediaPipe
+        # --- NEW MODEL LOGIC ---
+        # 1. Convert BGR (OpenCV) to RGB (PIL)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(rgb_frame)
+        pil_image = Image.fromarray(rgb_frame)
+        
+        # 2. Process with SigLIP model
+        inputs = siglip_processor(images=pil_image, return_tensors="pt")
+        
+        with torch.no_grad():
+            outputs = siglip_model(**inputs)
+            logits = outputs.logits
+            probs = torch.nn.functional.softmax(logits, dim=1).squeeze().tolist()
+        
+        # 3. Map indices to letters
+        # (This label map must match the model's training)
+        labels = {
+            "0": "A", "1": "B", "2": "C", "3": "D", "4": "E", "5": "F", "6": "G", "7": "H", "8": "I", "9": "J",
+            "10": "K", "11": "L", "12": "M", "13": "N", "14": "O", "15": "P", "16": "Q", "17": "R", "18": "S", "19": "T",
+            "20": "U", "21": "V", "22": "W", "23": "X", "24": "Y", "25": "Z"
+        }
+        
+        # 4. Get the top prediction
+        top_prediction_index = np.argmax(probs)
+        top_prediction_letter = labels.get(str(top_prediction_index), "Unknown")
+        top_prediction_confidence = probs[top_prediction_index]
 
-        hand_data = []
+        # 5. Return in the format the frontend expects
+        # We only return the letter if confidence is high enough
         recognized_letters = []
-
-        if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                landmarks = []
-                for landmark in hand_landmarks.landmark:
-                    landmarks.append({
-                        "x": landmark.x,
-                        "y": landmark.y,
-                        "z": landmark.z,
-                    })
-                hand_data.append(landmarks)
-                
-                # Recognize the letter
-                letter = recognize_asl_letter(landmarks)
-                if letter:
-                    recognized_letters.append(letter)
+        if top_prediction_confidence > 0.5: # 50% confidence threshold
+            recognized_letters.append(top_prediction_letter)
 
         return Response({
-            "hands": hand_data,
+            "hands": [], # We don't use landmarks anymore, but send empty list
             "letters": recognized_letters
         })
+        # --- END OF NEW LOGIC ---
 
     except Exception as e:
         import traceback
@@ -468,6 +524,87 @@ def check_model_status(request):
         'input_shape': str(asl_model.model.input_shape) if asl_model.model else None,
         'output_shape': str(asl_model.model.output_shape) if asl_model.model else None
     })
+
+
+@api_view(['POST'])
+def test_siglip_model(request):
+    """
+    Test the SigLIP model from play/model.py
+    Accepts an image and returns predictions for all 26 alphabet letters
+    """
+    if not SIGLIP_AVAILABLE:
+        return Response({
+            'error': 'SigLIP model not available',
+            'message': 'Model failed to load. Check backend logs.'
+        }, status=503)
+    
+    try:
+        image_data = request.data.get('image')
+        if not image_data:
+            return Response({'error': 'No image data provided'}, status=400)
+        
+        # Decode base64 image
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+        
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return Response({'error': 'Failed to decode image'}, status=400)
+        
+        # Convert BGR to RGB
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(rgb_frame)
+        
+        # Use improved model with smoothing and preprocessing
+        session_id = request.data.get('session_id', 'default')
+        reset_buffer = request.data.get('reset_buffer', False)
+        
+        # Reset buffer if requested
+        if reset_buffer:
+            siglip_model.reset_buffer()
+        
+        # Get predictions with smoothing
+        smoothed_predictions, raw_predictions = siglip_model.predict_with_smoothing(
+            pil_image,
+            use_hand_crop=True,  # Crop to hand region
+            use_preprocessing=True  # Apply image enhancement
+        )
+        
+        # Get top prediction
+        top_letter, top_conf = siglip_model.get_top_prediction(smoothed_predictions)
+        
+        # Round predictions for response
+        predictions = {letter: round(conf, 4) for letter, conf in smoothed_predictions.items()}
+        raw_predictions_rounded = {letter: round(conf, 4) for letter, conf in raw_predictions.items()}
+        
+        # Sort by probability
+        sorted_predictions = sorted(predictions.items(), key=lambda x: x[1], reverse=True)
+        top_prediction = (top_letter or sorted_predictions[0][0], top_conf)
+        
+        return Response({
+            'success': True,
+            'top_prediction': {
+                'letter': top_prediction[0],
+                'confidence': round(top_prediction[1], 4)
+            },
+            'all_predictions': predictions,
+            'raw_predictions': raw_predictions_rounded,  # Current frame without smoothing
+            'top_5': [{'letter': letter, 'confidence': conf} for letter, conf in sorted_predictions[:5]],
+            'buffer_size': len(siglip_model.prediction_buffer),
+            'hand_detected': True  # Will be False if no hand found in cropping
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in test_siglip_model: {str(e)}")
+        print(traceback.format_exc())
+        return Response({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }, status=500)
 
 
 # ---------- Progress Tracking API (optional) ----------
