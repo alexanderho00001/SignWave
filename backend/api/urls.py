@@ -7,7 +7,6 @@ from .views import (
     track_video_sequence, 
     get_available_signs,
     check_model_status,
-    test_siglip_model,
     track_asl_numbers,
 )
 
