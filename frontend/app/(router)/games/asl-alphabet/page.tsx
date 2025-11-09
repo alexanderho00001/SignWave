@@ -35,7 +35,7 @@ export default function ASLAlphabetGame() {
     const animationFrameRef = useRef<number | null>(null);
     const lastSpawnTimeRef = useRef<number>(0);
     const gameStartTimeRef = useRef<number>(0);
-    
+
     // Backend communication refs
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -49,7 +49,7 @@ export default function ASLAlphabetGame() {
     // Spawn a new falling letter
     const spawnLetter = useCallback(() => {
         if (!gameAreaRef.current) return;
-        
+
         const gameAreaWidth = gameAreaRef.current.clientWidth;
         const letterWidth = 60; // Approximate width of letter
         const maxX = gameAreaWidth - letterWidth;
@@ -136,7 +136,7 @@ export default function ASLAlphabetGame() {
             });
 
             const data = await response.json();
-            
+
             if (data.letters && data.letters.length > 0) {
                 const letter = data.letters[0];
                 checkMatches(letter);
@@ -149,8 +149,8 @@ export default function ASLAlphabetGame() {
     // Start webcam
     const startWebcam = useCallback(async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: 640, height: 480, facingMode: 'user' } 
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480, facingMode: 'user' }
             });
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
@@ -163,7 +163,7 @@ export default function ASLAlphabetGame() {
     // Initialize webcam on mount
     useEffect(() => {
         startWebcam();
-        
+
         return () => {
             if (videoRef.current && videoRef.current.srcObject) {
                 const stream = videoRef.current.srcObject as MediaStream;
