@@ -6,3 +6,5 @@ django-cors-headers
 torch
 numpy
 tensorflow
+gradio
+transformers
