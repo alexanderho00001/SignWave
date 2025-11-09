@@ -19,7 +19,7 @@ export default function ASLAlphabetPage() {
     const [detectedLetter, setDetectedLetter] = useState<string | null>(null);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [isTracking, setIsTracking] = useState(false);
-    
+
     // Backend communication refs
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -41,8 +41,8 @@ export default function ASLAlphabetPage() {
     // Start webcam
     const startWebcam = useCallback(async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: 640, height: 480, facingMode: 'user' } 
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480, facingMode: 'user' }
             });
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
@@ -55,7 +55,7 @@ export default function ASLAlphabetPage() {
     // Initialize webcam on mount
     useEffect(() => {
         startWebcam();
-        
+
         return () => {
             if (videoRef.current && videoRef.current.srcObject) {
                 const stream = videoRef.current.srcObject as MediaStream;
@@ -101,24 +101,24 @@ export default function ASLAlphabetPage() {
             });
 
             const data = await response.json();
-            
+
             if (data.letters && data.letters.length > 0) {
                 const letter = data.letters[0];
                 setDetectedLetter(letter);
-                
+
                 const correct = letter === currentLetter;
-                
+
                 if (correct) {
                     setIsCorrect(true);
-                    
+
                     if (firstCorrectDetectionTimeRef.current === null) {
                         firstCorrectDetectionTimeRef.current = Date.now();
                     } else {
                         const durationHeld = Date.now() - firstCorrectDetectionTimeRef.current;
-                        
+
                         if (durationHeld >= REQUIRED_HOLD_DURATION && !justCompletedRef.current) {
                             justCompletedRef.current = true;
-                            
+
                             // Auto-advance to next letter after success
                             setTimeout(() => {
                                 generateRandomLetter();
@@ -185,6 +185,8 @@ export default function ASLAlphabetPage() {
         setIsTracking(prev => !prev);
     };
 
+
+
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
@@ -215,19 +217,18 @@ export default function ASLAlphabetPage() {
                                     className="w-full h-full object-cover"
                                 />
                                 <canvas ref={canvasRef} className="hidden" />
-                                
+
                                 {/* Detection overlay */}
                                 {isTracking && detectedLetter && (
-                                    <div className={`absolute top-4 left-4 px-4 py-2 rounded-lg shadow-lg ${
-                                        isCorrect ? 'bg-green-500' : 'bg-orange-500'
-                                    } text-white`}>
+                                    <div className={`absolute top-4 left-4 px-4 py-2 rounded-lg shadow-lg ${isCorrect ? 'bg-green-500' : 'bg-orange-500'
+                                        } text-white`}>
                                         <div className="text-lg font-bold">
                                             {isCorrect ? '✅ Correct!' : `Detected: ${detectedLetter}`}
                                         </div>
                                     </div>
                                 )}
                             </div>
-                            
+
                             <Button
                                 onClick={toggleTracking}
                                 variant={isTracking ? 'destructive' : 'default'}

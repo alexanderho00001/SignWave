@@ -6,7 +6,8 @@ from .views import (
     progress_api,
     track_video_sequence, 
     get_available_signs,
-    check_model_status
+    check_model_status,
+    test_siglip_model
 )
 
 urlpatterns = [
@@ -17,4 +18,5 @@ urlpatterns = [
     path("track-video/", track_video_sequence, name="track_video"),
     path("available-signs/", get_available_signs, name="available_signs"),
     path("model-status/", check_model_status, name="model_status"),
+    path("test-siglip/", test_siglip_model, name="test_siglip_model"),
 ]
