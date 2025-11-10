@@ -11,6 +11,8 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
+import { ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const FALL_SPEED = 0.5; // pixels per frame
@@ -26,6 +28,7 @@ type FallingLetter = {
 };
 
 export default function ASLAlphabetGame() {
+    const router = useRouter();
     const [gameState, setGameState] = useState<'menu' | 'playing' | 'paused' | 'gameover'>('menu');
     const [fallingLetters, setFallingLetters] = useState<FallingLetter[]>([]);
     const [score, setScore] = useState(0);
@@ -286,6 +289,15 @@ export default function ASLAlphabetGame() {
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.push('/dashboard')}
+                    className="mb-4"
+                >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Dashboard
+                </Button>
                 <h1 className="text-3xl font-bold mb-2">ASL Alphabet Game</h1>
                 <p className="text-muted-foreground">
                     Sign the falling letters before they hit the bottom!

@@ -4,7 +4,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
-import { CheckCircle } from 'lucide-react';
+import { CheckCircle, ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const REQUIRED_HOLD_DURATION = 50;
@@ -18,7 +19,9 @@ const getRandomLetter = () => {
 
 
 export default function ASLAlphabetPage() {
+    const router = useRouter();
     const [score, setScore] = useState(0);
+    const [highScore, setHighScore] = useState<number | null>(null);
     // Always initialize with empty string to ensure server and client render the same
     const [currentLetter, setCurrentLetter] = useState<string>('');
     const [detectedLetter, setDetectedLetter] = useState<string | null>(null);
@@ -44,6 +47,29 @@ export default function ASLAlphabetPage() {
         }, 0);
 
         return () => clearTimeout(timer);
+    }, []);
+
+    // Fetch previous progress on mount
+    useEffect(() => {
+        const fetchProgress = async () => {
+            try {
+                const response = await fetch('/api/progress?lesson_slug=asl-alphabet');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.data.length > 0) {
+                        const lessonProgress = data.data[0];
+                        setHighScore(lessonProgress.score);
+                        if (lessonProgress.completed && lessonProgress.score >= GOAL_SCORE) {
+                            setHasCompletedLesson(true);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching progress:', error);
+            }
+        };
+
+        fetchProgress();
     }, []);
 
     // Start webcam
@@ -72,13 +98,12 @@ export default function ASLAlphabetPage() {
         };
     }, [startWebcam]);
 
-    const markLessonAsCompleted = useCallback(async (finalScore: number) => {
-        // Only save once per session to avoid spamming the API
-        if (hasCompletedLesson) return; 
-        
-        setHasCompletedLesson(true);
-        console.log(`Lesson complete with score ${finalScore}! Saving progress...`);
-        
+    const saveProgress = useCallback(async (currentScore: number) => {
+        // Update high score locally
+        setHighScore((prev) => Math.max(prev || 0, currentScore));
+
+        console.log(`Saving progress with score ${currentScore}...`);
+
         try {
             const response = await fetch('/api/progress/', {
                 method: 'POST',
@@ -86,12 +111,12 @@ export default function ASLAlphabetPage() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    lesson_slug: 'asl-alphabet', // This MUST match the slug in your dashboard
-                    completed: true,
-                    score: finalScore,
+                    lesson_slug: 'asl-alphabet',
+                    completed: currentScore >= GOAL_SCORE,
+                    score: currentScore,
                 }),
             });
-            
+
             if (response.ok) {
                 console.log('Progress saved successfully!');
             } else {
@@ -100,14 +125,19 @@ export default function ASLAlphabetPage() {
         } catch (error) {
             console.error('Error saving progress:', error);
         }
-    }, [hasCompletedLesson]);
+    }, []);
 
     useEffect(() => {
-        // When score hits the goal, mark as complete
+        // Mark as completed when score reaches goal for the first time
         if (score >= GOAL_SCORE && !hasCompletedLesson) {
-            markLessonAsCompleted(score);
+            setHasCompletedLesson(true);
         }
-    }, [score, hasCompletedLesson, markLessonAsCompleted]);
+
+        // Save progress every time score changes
+        if (score > 0) {
+            saveProgress(score);
+        }
+    }, [score, hasCompletedLesson, saveProgress]);
 
     const generateRandomLetter = useCallback(() => {
         const randomIndex = Math.floor(Math.random() * ALPHABET.length);
@@ -262,6 +292,15 @@ export default function ASLAlphabetPage() {
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.push('/dashboard')}
+                    className="mb-4"
+                >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Dashboard
+                </Button>
                 <h1 className="text-3xl font-bold mb-2">ASL Alphabet Practice</h1>
                 <p className="text-muted-foreground">
                     Practice signing the alphabet letters. Try to match the letter shown below!
@@ -317,23 +356,22 @@ export default function ASLAlphabetPage() {
                         <CardHeader>
                             <CardTitle className="text-2xl font-semibold">Sign This Letter</CardTitle>
                             <CardDescription>Use your webcam to sign the letter shown below</CardDescription>
-                            <div className="text-right">
-                                    <div className="text-sm font-medium text-muted-foreground">SCORE</div>
-                                    <div className="text-3xl font-bold text-primary">{score}</div>
-                                    <div className="text-right flex-shrink-0">
-                                    <div className="text-sm font-medium text-muted-foreground">SCORE</div>
-                                    {/* MODIFIED: Show score out of 10 */}
-                                    <div className="text-3xl font-bold text-primary">
-                                        {score} <span className="text-lg text-muted-foreground">/ {GOAL_SCORE}</span>
-                                    </div>
-                                    {/* ADDED: Completion Checkmark */}
-                                    {hasCompletedLesson && (
-                                        <div className="flex items-center justify-end text-green-600 font-semibold text-sm mt-1">
-                                            <CheckCircle className="mr-1 h-4 w-4" />
-                                            Complete!
-                                        </div>
-                                    )}
+                            <div className="text-right flex-shrink-0">
+                                <div className="text-sm font-medium text-muted-foreground">SCORE</div>
+                                <div className="text-3xl font-bold text-primary">
+                                    {score}
                                 </div>
+                                {highScore !== null && highScore > 0 && (
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                        High Score: {highScore}
+                                    </div>
+                                )}
+                                {hasCompletedLesson && (
+                                    <div className="flex items-center justify-end text-green-600 font-semibold text-sm mt-1">
+                                        <CheckCircle className="mr-1 h-4 w-4" />
+                                        Complete!
+                                    </div>
+                                )}
                             </div>
                         </CardHeader>
                         <CardContent className="flex-1 flex flex-col items-center justify-center gap-6">
