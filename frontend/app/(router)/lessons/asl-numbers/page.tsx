@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 
 const NUMBERS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-const REQUIRED_HOLD_DURATION = 50; // 1 second
+const REQUIRED_HOLD_DURATION = 50;
 
 // Generate a random number
 const getRandomNumber = () => {
