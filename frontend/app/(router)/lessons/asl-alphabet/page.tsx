@@ -13,12 +13,15 @@ const getRandomLetter = () => {
     return ALPHABET[randomIndex];
 };
 
+
 export default function ASLAlphabetPage() {
     // Always initialize with empty string to ensure server and client render the same
     const [currentLetter, setCurrentLetter] = useState<string>('');
     const [detectedLetter, setDetectedLetter] = useState<string | null>(null);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [isTracking, setIsTracking] = useState(false);
+    const [showAnswer, setShowAnswer] = useState(false);
+
 
     // Backend communication refs
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -71,6 +74,7 @@ export default function ASLAlphabetPage() {
         setIsCorrect(null);
         justCompletedRef.current = false;
         firstCorrectDetectionTimeRef.current = null;
+        setShowAnswer(false);
     }, []);
 
     // Backend hand detection function
@@ -92,7 +96,7 @@ export default function ASLAlphabetPage() {
         const imageData = canvas.toDataURL('image/jpeg', 0.8);
 
         try {
-            const response = await fetch('http://localhost:8000/api/track-hands/', {
+            const response = await fetch('http://localhost:8000/api/test-siglip/', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -102,8 +106,25 @@ export default function ASLAlphabetPage() {
 
             const data = await response.json();
 
-            if (data.letters && data.letters.length > 0) {
-                const letter = data.letters[0];
+            // Get the most accurate prediction from SigLIP model response
+            let letter: string | null = null;
+            
+            // Primary: Use top_prediction (smoothed prediction with highest confidence)
+            if (data.top_prediction && data.top_prediction.letter) {
+                letter = data.top_prediction.letter;
+            } else if (data.letters && Array.isArray(data.letters) && data.letters.length > 0) {
+                // Fallback to letters array if top_prediction not available
+                letter = data.letters[0];
+            } else if (data.all_predictions && typeof data.all_predictions === 'object') {
+                // Fallback: get highest confidence prediction from all_predictions
+                const predictions = Object.entries(data.all_predictions) as [string, number][];
+                if (predictions.length > 0) {
+                    const sorted = predictions.sort((a, b) => b[1] - a[1]);
+                    letter = sorted[0][0];
+                }
+            }
+
+            if (letter) {
                 setDetectedLetter(letter);
 
                 const correct = letter === currentLetter;
@@ -126,6 +147,7 @@ export default function ASLAlphabetPage() {
                                 setDetectedLetter(null);
                                 justCompletedRef.current = false;
                                 firstCorrectDetectionTimeRef.current = null;
+                                setShowAnswer(false);
                             }, 1500);
                         }
                     }
@@ -144,6 +166,7 @@ export default function ASLAlphabetPage() {
             console.error('Error detecting hand sign:', error);
         }
     }, [isTracking, currentLetter, generateRandomLetter]);
+
 
     // Backend hand detection when tracking is active
     useEffect(() => {
@@ -262,7 +285,26 @@ export default function ASLAlphabetPage() {
                                             <div className="absolute -bottom-2 -left-2 w-6 h-6 bg-primary/20 rounded-full animate-pulse delay-300" />
                                         </div>
                                     </div>
+                                    {/* New: Reveal Answer Button + Image */}
+                                    <div className="flex flex-col items-center gap-3">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setShowAnswer(prev => !prev)}
+                                        >
+                                            {showAnswer ? 'Hide Answer' : 'Reveal Answer'}
+                                        </Button>
 
+                                        {showAnswer && (
+                                            <div className="mt-2">
+                                                <img
+                                                    src={`/asl-signs/${currentLetter}.png`}
+                                                    alt={`ASL sign for letter ${currentLetter}`}
+                                                    className="w-48 h-48 object-contain rounded-xl border border-border shadow-md bg-background"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
                                     <div className="text-center space-y-2">
                                         <p className="text-lg font-medium">
                                             Practice signing the letter{' '}

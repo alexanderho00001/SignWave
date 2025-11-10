@@ -30,41 +30,33 @@ from .islr_loader import (
 from .src.landmarks_extraction import extract_coordinates
 
 # Import SigLIP model for alphabet detection
-# try:
-#     import sys
-#     import os
-#     # Add play directory to path
-#     play_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'play')
-#     if play_dir not in sys.path:
-#         sys.path.insert(0, play_dir)
+try:
+    from transformers import AutoImageProcessor, SiglipForImageClassification
+    from PIL import Image
+    import torch
     
-#     from transformers import AutoImageProcessor, SiglipForImageClassification
-#     from transformers.image_utils import load_image
-#     from PIL import Image
-#     import torch
+    # Load SigLIP model
+    model_name = "prithivMLmods/Alphabet-Sign-Language-Detection"
+    base_siglip_model = SiglipForImageClassification.from_pretrained(model_name)
+    siglip_processor = AutoImageProcessor.from_pretrained(model_name)
     
-#     # Load SigLIP model
-#     model_name = "prithivMLmods/Alphabet-Sign-Language-Detection"
-#     base_siglip_model = SiglipForImageClassification.from_pretrained(model_name)
-#     siglip_processor = AutoImageProcessor.from_pretrained(model_name)
-    
-#     # Wrap with improved model
-#     from .improved_siglip import ImprovedSigLIPModel
-#     siglip_model = ImprovedSigLIPModel(
-#         base_siglip_model,
-#         siglip_processor,
-#         smoothing_window=5,  # Average last 5 predictions
-#         confidence_threshold=0.2  # Minimum confidence threshold
-#     )
-#     SIGLIP_AVAILABLE = True
-#     print("✅ Improved SigLIP model loaded successfully")
-# except Exception as e:
-#     import traceback
-#     print(f"⚠️ SigLIP model not available: {e}")
-#     print(traceback.format_exc())
-#     SIGLIP_AVAILABLE = False
-#     siglip_model = None
-#     siglip_processor = None
+    # Wrap with improved model
+    from .improved_siglip import ImprovedSigLIPModel
+    siglip_model = ImprovedSigLIPModel(
+        base_siglip_model,
+        siglip_processor,
+        smoothing_window=5,  # Average last 5 predictions
+        confidence_threshold=0.2  # Minimum confidence threshold
+    )
+    SIGLIP_AVAILABLE = True
+    print("✅ Improved SigLIP model loaded successfully")
+except Exception as e:
+    import traceback
+    print(f"⚠️ SigLIP model not available: {e}")
+    print(traceback.format_exc())
+    SIGLIP_AVAILABLE = False
+    siglip_model = None
+    siglip_processor = None
 
 # Import progress models (if they exist)
 try:
@@ -732,8 +724,9 @@ def test_siglip_model(request):
     Test the SigLIP model from play/model.py
     Accepts an image and returns predictions for all 26 alphabet letters
     """
-    if not SIGLIP_AVAILABLE:
+    if not SIGLIP_AVAILABLE or siglip_model is None:
         return Response({
+            'success': False,
             'error': 'SigLIP model not available',
             'message': 'Model failed to load. Check backend logs.'
         }, status=503)
@@ -741,7 +734,10 @@ def test_siglip_model(request):
     try:
         image_data = request.data.get('image')
         if not image_data:
-            return Response({'error': 'No image data provided'}, status=400)
+            return Response({
+                'success': False,
+                'error': 'No image data provided'
+            }, status=400)
         
         # Decode base64 image
         if ',' in image_data:
@@ -752,7 +748,10 @@ def test_siglip_model(request):
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if frame is None:
-            return Response({'error': 'Failed to decode image'}, status=400)
+            return Response({
+                'success': False,
+                'error': 'Failed to decode image'
+            }, status=400)
         
         # Convert BGR to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -802,6 +801,7 @@ def test_siglip_model(request):
         print(f"Error in test_siglip_model: {str(e)}")
         print(traceback.format_exc())
         return Response({
+            'success': False,
             'error': str(e),
             'traceback': traceback.format_exc()
         }, status=500)

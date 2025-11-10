@@ -285,7 +285,21 @@ export default function ASLCompetitionPage() {
         const imageData = canvas.toDataURL('image/jpeg', 0.8);
 
         try {
-            const response = await fetch('http://localhost:8000/api/track-hands/', {
+            const currentProblem = room.current_problem;
+            if (!currentProblem) return;
+
+            let endpoint = '';
+            if (currentProblem.type === 'alphabet') {
+                endpoint = 'http://localhost:8000/api/test-siglip/';
+            } else if (currentProblem.type === 'number') {
+                endpoint = 'http://localhost:8000/api/track-asl-numbers/';
+            } else if (currentProblem.type === 'word') {
+                endpoint = 'http://localhost:8000/api/track-video/';
+            }
+
+            if (!endpoint) return;
+
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -293,23 +307,32 @@ export default function ASLCompetitionPage() {
                 body: JSON.stringify({ image: imageData }),
             });
 
-            if (!response.ok) return;
+            if (!response.ok) {
+                console.error('API response not OK:', response.status);
+                return;
+            }
 
             const data = await response.json();
             console.log('Detection response:', data);
-            const currentProblem = room.current_problem;
-            if (!currentProblem) return;
 
             // Process detection based on problem type
-            // Check for different response formats from backend
             if (currentProblem.type === 'alphabet') {
+                // test-siglip returns { top_prediction: {letter, confidence}, all_predictions: {...}, ... }
                 let detectedLetter: string | null = null;
                 
-                // Try different response formats
-                if (data.detected_letter) {
-                    detectedLetter = data.detected_letter;
+                // Get the most accurate prediction (top_prediction)
+                if (data.top_prediction && data.top_prediction.letter) {
+                    detectedLetter = data.top_prediction.letter;
                 } else if (data.letters && Array.isArray(data.letters) && data.letters.length > 0) {
+                    // Fallback to letters array if top_prediction not available
                     detectedLetter = data.letters[0];
+                } else if (data.all_predictions && typeof data.all_predictions === 'object') {
+                    // Fallback: get highest confidence prediction from all_predictions
+                    const predictions = Object.entries(data.all_predictions) as [string, number][];
+                    if (predictions.length > 0) {
+                        const sorted = predictions.sort((a, b) => b[1] - a[1]);
+                        detectedLetter = sorted[0][0];
+                    }
                 }
                 
                 if (detectedLetter) {
@@ -317,32 +340,20 @@ export default function ASLCompetitionPage() {
                     checkAnswer(detectedLetter);
                 }
             } else if (currentProblem.type === 'number') {
-                let detectedNumber: number | null = null;
-                
-                if (data.detected_number) {
-                    detectedNumber = data.detected_number;
-                } else if (data.numbers && Array.isArray(data.numbers) && data.numbers.length > 0) {
-                    detectedNumber = data.numbers[0];
-                }
-                
-                if (detectedNumber !== null) {
-                    setDetectedValue(detectedNumber);
-                    checkAnswer(detectedNumber);
+                // track-asl-numbers returns {hands: [...], letters: [...]} (numbers as strings in letters array)
+                if (data.letters && Array.isArray(data.letters) && data.letters.length > 0) {
+                    const detectedNumberStr = data.letters[0];
+                    const detectedNumber = parseInt(detectedNumberStr, 10);
+                    if (!isNaN(detectedNumber)) {
+                        setDetectedValue(detectedNumber);
+                        checkAnswer(detectedNumber);
+                    }
                 }
             } else if (currentProblem.type === 'word') {
-                let detectedWord: string | null = null;
-                
-                if (data.detected_word) {
-                    detectedWord = data.detected_word;
-                } else if (data.predicted_sign) {
-                    detectedWord = data.predicted_sign;
-                } else if (data.words && Array.isArray(data.words) && data.words.length > 0) {
-                    detectedWord = data.words[0];
-                }
-                
-                if (detectedWord) {
-                    setDetectedValue(detectedWord);
-                    checkAnswer(detectedWord);
+                // track-video returns {predicted_sign: "...", confidence: ...}
+                if (data.predicted_sign) {
+                    setDetectedValue(data.predicted_sign);
+                    checkAnswer(data.predicted_sign);
                 }
             }
         } catch (error) {
