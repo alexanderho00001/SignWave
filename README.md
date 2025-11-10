@@ -21,8 +21,36 @@ Progress Tracking: Automatically saves learning progress for continuous developm
 https://docs.google.com/presentation/d/1WiH7RLNqYsvKz_j57tKsCj6MxtciMwE06PnfUDERmio/edit?usp=sharing
 
 # How It Works
+!. Clone the repository
+Clone the repository into your local device
+2. cd SignWave
+Go into the repository
+3. python3 -m venv venv
+Create a virtual environment
+4. source venv/bin/activate
+Activate that virtual environment
+5. cd backend
+Go into the backend
+6. pip install -r requirements.txt
+Install the requirements
+7. python3 manage.py runserver
+Start the backend server
+8. Open a new terminal
+Open a brand new terminal
+9. cd SignWave
+Go into the repository
+10. source venv/bin/activate
+Activate a virtual environment
+11. cd frontend
+Go into the frontend
+12. npm i
+Install the frontend packages
+13. npm run dev
+Start the frontend server
+14. Open on local host
+Open the server in your browser
 
-First, open the website and allow webcam access, and choose a lesson to begin learning ASL. 
+Open the website and allow webcam access, and choose a lesson to begin learning ASL. 
 Follow the on-screen prompt and perform hand signs. 
 Use the "Reveal Answer" button if you do not know the sign. 
 Play games with others to test your skill.
