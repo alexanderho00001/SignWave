@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,28 @@ export default function RegisterPage() {
     });
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [checkingAuth, setCheckingAuth] = useState(true);
+
+    // Check if user is already authenticated and redirect
+    useEffect(() => {
+        const checkAuth = () => {
+            // Check localStorage for userId
+            const userId = localStorage.getItem('userId');
+            
+            // Check cookie for user data (non-httpOnly cookie)
+            const cookies = document.cookie.split(';');
+            const userCookie = cookies.find(cookie => cookie.trim().startsWith('_signwave_user='));
+            
+            if (userId || userCookie) {
+                // User is authenticated, redirect to dashboard
+                router.push('/dashboard');
+            } else {
+                setCheckingAuth(false);
+            }
+        };
+
+        checkAuth();
+    }, [router]);
 
     function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
         const { name, value } = e.target;
@@ -79,6 +101,19 @@ export default function RegisterPage() {
         } finally {
             setLoading(false);
         }
+    }
+
+    // Show loading state while checking authentication
+    if (checkingAuth) {
+        return (
+            <main className="flex min-h-screen w-full items-center justify-center bg-background px-4">
+                <Card className="w-full max-w-md">
+                    <CardContent className="pt-6">
+                        <p className="text-center text-muted-foreground">Checking authentication...</p>
+                    </CardContent>
+                </Card>
+            </main>
+        );
     }
 
     return (

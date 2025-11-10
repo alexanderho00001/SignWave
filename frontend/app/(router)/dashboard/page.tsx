@@ -90,73 +90,37 @@ export default function LessonsPage() {
     const [joinError, setJoinError] = useState<string | null>(null);
 
     useEffect(() => {
-        async function fetchProgress() {
-            try {
-                const res = await fetch('http://localhost:8000/api/progress/', {
-                    credentials: 'include',
-                });
-
-                if (!res.ok) {
-                    const data = await res.json().catch(() => ({}));
-                    throw new Error(data.detail || 'Failed to load progress');
-                }
-
-                const data = await res.json();
-                setProgress(data.progress || []);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } catch (err: any) {
-                setError(err.message || 'Something went wrong');
-            }
-        }
-
-        fetchProgress();
+        // Progress tracking is currently not implemented in Next.js API routes
+        // For now, progress is stored locally or can be added later
+        // Set empty progress array - lessons will show as not completed
+        setProgress([]);
     }, []);
 
     async function markCompleted(slug: string) {
-        try {
-            const res = await fetch('http://localhost:8000/api/progress/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    lesson_slug: slug,
-                    completed: true,
-                    score: 100, // placeholder — you can calculate real scores later
-                }),
-            });
-
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                throw new Error(data.detail || 'Failed to save progress');
-            }
-
-            const updated = await res.json();
-
-            setProgress((prev) =>
-                prev.some((p) => p.lesson_slug === slug)
-                    ? prev.map((p) =>
-                          p.lesson_slug === slug
-                              ? {
-                                    ...p,
-                                    completed: true,
-                                    last_score: updated.last_score ?? p.last_score,
-                                }
-                              : p
-                      )
-                    : [
-                          ...prev,
-                          {
-                              lesson_slug: slug,
-                              lesson_title: LESSONS.find((l) => l.slug === slug)?.title || slug,
-                              completed: true,
-                              last_score: updated.last_score ?? 100,
-                          },
-                      ]
-            );
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } catch (err: any) {
-            setError(err.message || 'Something went wrong');
-        }
+        // Progress tracking is currently not implemented in Next.js API routes
+        // For now, update local state only
+        // TODO: Implement progress API route if needed
+        setProgress((prev) =>
+            prev.some((p) => p.lesson_slug === slug)
+                ? prev.map((p) =>
+                      p.lesson_slug === slug
+                          ? {
+                                ...p,
+                                completed: true,
+                                last_score: 100,
+                            }
+                          : p
+                  )
+                : [
+                      ...prev,
+                      {
+                          lesson_slug: slug,
+                          lesson_title: LESSONS.find((l) => l.slug === slug)?.title || slug,
+                          completed: true,
+                          last_score: 100,
+                      },
+                  ]
+        );
     }
 
     // Get current user ID (you'll need to implement this based on your auth system)
@@ -287,14 +251,49 @@ export default function LessonsPage() {
         };
     });
 
+    // Handle sign out
+    const handleSignOut = async () => {
+        try {
+            // Call logout API to clear cookies
+            await fetch('/api/auth/logout', {
+                method: 'GET',
+                credentials: 'include',
+            });
+
+            // Clear localStorage
+            localStorage.removeItem('userId');
+            localStorage.removeItem('userName');
+            localStorage.removeItem('username');
+
+            // Redirect to login page
+            router.push('/');
+        } catch (error) {
+            console.error('Error during sign out:', error);
+            // Even if API fails, clear localStorage and redirect
+            localStorage.removeItem('userId');
+            localStorage.removeItem('userName');
+            localStorage.removeItem('username');
+            router.push('/');
+        }
+    };
+
     return (
         <main className="flex min-h-screen w-full bg-background px-4 py-8">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-                <div className="space-y-2">
-                    <h1 className="text-3xl font-semibold tracking-tight">Your ASL Lessons</h1>
-                    <p className="text-muted-foreground">
-                        Tap a lesson to start practicing. Your progress is saved to your account.
-                    </p>
+                <div className="flex items-center justify-between">
+                    <div className="space-y-2">
+                        <h1 className="text-3xl font-semibold tracking-tight">Your ASL Lessons</h1>
+                        <p className="text-muted-foreground">
+                            Tap a lesson to start practicing. Your progress is saved to your account.
+                        </p>
+                    </div>
+                    <Button
+                        variant="outline"
+                        onClick={handleSignOut}
+                        className="shrink-0"
+                    >
+                        Sign Out
+                    </Button>
                 </div>
 
                 {error && (

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import HandTracker from '@/components/HandTracker';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -89,8 +88,15 @@ export default function ASLNumbersGame() {
     const [timeRemaining, setTimeRemaining] = useState(TIME_PER_ROUND);
     const [detectedNumber, setDetectedNumber] = useState<number | null>(null);
     const [showFeedback, setShowFeedback] = useState<'correct' | 'incorrect' | null>(null);
+    const [currentPrediction, setCurrentPrediction] = useState<number | null>(null);
+    const [justAnswered, setJustAnswered] = useState(false); // Prevent multiple answers for same problem
     const timerRef = useRef<NodeJS.Timeout | null>(null);
     const gameAreaRef = useRef<HTMLDivElement>(null);
+    
+    // Backend communication refs
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // Start a new round
     const startRound = useCallback(() => {
@@ -99,14 +105,18 @@ export default function ASLNumbersGame() {
         setTimeRemaining(TIME_PER_ROUND);
         setDetectedNumber(null);
         setShowFeedback(null);
+        setJustAnswered(false); // Reset answer lock for new problem
+        setCurrentPrediction(null);
     }, []);
 
     // Check if detected number matches the answer
     const checkAnswer = useCallback(
         (detected: number) => {
-            if (!currentProblem || gameState !== 'playing') return;
+            if (!currentProblem || gameState !== 'playing' || justAnswered) return;
 
             if (detected === currentProblem.answer) {
+                // Prevent multiple answers for the same problem
+                setJustAnswered(true);
                 setScore((prev) => prev + 10);
                 setShowFeedback('correct');
                 setTimeout(() => {
@@ -125,7 +135,7 @@ export default function ASLNumbersGame() {
                 setTimeout(() => setShowFeedback(null), 1000);
             }
         },
-        [currentProblem, currentRound, gameState, startRound]
+        [currentProblem, currentRound, gameState, startRound, justAnswered]
     );
 
     // Timer countdown
@@ -162,25 +172,108 @@ export default function ASLNumbersGame() {
         };
     }, [gameState, timeRemaining, currentRound, startRound]);
 
-    // Simulate hand detection (for now, since backend isn't ready)
-    // In the future, this will be replaced with actual HandTracker integration
-    useEffect(() => {
-        if (gameState !== 'playing' || !currentProblem) return;
+    // Backend hand detection function
+    const detectHandSign = useCallback(async () => {
+        if (!videoRef.current || !canvasRef.current || gameState !== 'playing' || !currentProblem || justAnswered) {
+            return;
+        }
 
-        // Simulate random detection for demo purposes
-        // TODO: Replace with actual HandTracker integration
-        const simulateDetection = setInterval(() => {
-            // For demo: randomly detect a number 1-10
-            // In production, this will come from HandTracker component
-            if (Math.random() > 0.97) {
-                const randomNumber = Math.floor(Math.random() * 10) + 1;
-                setDetectedNumber(randomNumber);
-                checkAnswer(randomNumber);
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        if (!context) return;
+        if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+        try {
+            const response = await fetch('http://localhost:8000/api/track-numbers/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ image: imageData }),
+            });
+
+            if (!response.ok) {
+                console.error('API response not OK:', response.status, response.statusText);
+                return;
             }
-        }, 500);
 
-        return () => clearInterval(simulateDetection);
-    }, [gameState, currentProblem, checkAnswer]);
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                console.error('Response is not JSON:', contentType);
+                return;
+            }
+
+            const data = await response.json();
+            console.log('Number detection response:', data);
+
+            // track-numbers returns {hands: [...], letters: [...]} (numbers as strings in letters array)
+            if (data.letters && Array.isArray(data.letters) && data.letters.length > 0) {
+                const detectedNumberStr = data.letters[0];
+                const detectedNumber = parseInt(detectedNumberStr, 10);
+                if (!isNaN(detectedNumber)) {
+                    setCurrentPrediction(detectedNumber);
+                    setDetectedNumber(detectedNumber);
+                    checkAnswer(detectedNumber);
+                }
+            }
+        } catch (error) {
+            console.error('Error detecting hand sign:', error);
+        }
+    }, [gameState, currentProblem, checkAnswer, justAnswered]);
+
+    // Start webcam
+    const startWebcam = useCallback(async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480, facingMode: 'user' }
+            });
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+            }
+        } catch (err) {
+            console.error("Error accessing webcam:", err);
+        }
+    }, []);
+
+    // Initialize webcam on mount
+    useEffect(() => {
+        startWebcam();
+
+        return () => {
+            if (videoRef.current && videoRef.current.srcObject) {
+                const stream = videoRef.current.srcObject as MediaStream;
+                stream.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [startWebcam]);
+
+    // Backend hand detection when game is playing
+    useEffect(() => {
+        if (gameState !== 'playing') {
+            if (detectionIntervalRef.current) {
+                clearInterval(detectionIntervalRef.current);
+                detectionIntervalRef.current = null;
+            }
+            return;
+        }
+
+        // Start detecting hand signs every 500ms
+        detectionIntervalRef.current = setInterval(detectHandSign, 500);
+
+        return () => {
+            if (detectionIntervalRef.current) {
+                clearInterval(detectionIntervalRef.current);
+                detectionIntervalRef.current = null;
+            }
+        };
+    }, [gameState, detectHandSign]);
 
     const startGame = () => {
         setGameState('playing');
@@ -189,6 +282,8 @@ export default function ASLNumbersGame() {
         setTimeRemaining(TIME_PER_ROUND);
         setDetectedNumber(null);
         setShowFeedback(null);
+        setCurrentPrediction(null);
+        setJustAnswered(false);
         startRound();
     };
 
@@ -203,6 +298,8 @@ export default function ASLNumbersGame() {
         setTimeRemaining(TIME_PER_ROUND);
         setDetectedNumber(null);
         setShowFeedback(null);
+        setCurrentPrediction(null);
+        setJustAnswered(false);
         setCurrentProblem(null);
     };
 
@@ -344,7 +441,31 @@ export default function ASLNumbersGame() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="flex-1">
-                            <HandTracker />
+                            <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black">
+                                <video
+                                    ref={videoRef}
+                                    autoPlay
+                                    playsInline
+                                    muted
+                                    className="w-full h-full object-cover"
+                                />
+                                <canvas ref={canvasRef} className="hidden" />
+                                
+                                {/* Detection overlay - Prediction display */}
+                                {gameState === 'playing' && currentPrediction !== null && (
+                                    <div className="absolute top-4 left-4 px-4 py-2 rounded-lg shadow-lg bg-orange-500 text-white">
+                                        <div className="text-lg font-bold">
+                                            Detected: {currentPrediction}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {gameState !== 'playing' && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                                        <p className="text-white text-sm">Start the game to begin tracking</p>
+                                    </div>
+                                )}
+                            </div>
                         </CardContent>
                     </Card>
 
