@@ -33,10 +33,10 @@ const LESSONS = [
         description: 'Learn the ASL alphabet and practice fingerspelling.',
     },
     {
-        slug: 'asl-numbers-1-10',
-        title: 'Numbers 1–10',
+        slug: 'asl-numbers-0-9',
+        title: 'Numbers 0–9',
         link: '/lessons/asl-numbers',
-        description: 'Count from 1 to 10 using ASL.',
+        description: 'Count from 0 to 9 using ASL.',
     },
     {
         slug: 'asl-basic-words',

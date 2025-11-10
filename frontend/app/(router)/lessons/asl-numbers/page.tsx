@@ -186,9 +186,9 @@ export default function ASLNumbersPage() {
         // --- The rest of your JSX is perfect, no changes needed ---
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
-                <h1 className="text-3xl font-bold mb-2">ASL Numbers Practice (1-10)</h1>
+                <h1 className="text-3xl font-bold mb-2">ASL Numbers Practice (0-9)</h1>
                 <p className="text-muted-foreground">
-                    Practice signing numbers 1 through 10. Try to match the number shown below!
+                    Practice signing numbers 0 through 9. Try to match the number shown below!
                 </p>
             </div>
 
