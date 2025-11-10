@@ -3,9 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import Image from 'next/image';
+import { CheckCircle } from 'lucide-react';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const REQUIRED_HOLD_DURATION = 50;
+const GOAL_SCORE = 10;
 
 // Generate a random letter
 const getRandomLetter = () => {
@@ -15,12 +18,14 @@ const getRandomLetter = () => {
 
 
 export default function ASLAlphabetPage() {
+    const [score, setScore] = useState(0);
     // Always initialize with empty string to ensure server and client render the same
     const [currentLetter, setCurrentLetter] = useState<string>('');
     const [detectedLetter, setDetectedLetter] = useState<string | null>(null);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [isTracking, setIsTracking] = useState(false);
     const [showAnswer, setShowAnswer] = useState(false);
+    const [hasCompletedLesson, setHasCompletedLesson] = useState(false);
 
 
     // Backend communication refs
@@ -67,6 +72,43 @@ export default function ASLAlphabetPage() {
         };
     }, [startWebcam]);
 
+    const markLessonAsCompleted = useCallback(async (finalScore: number) => {
+        // Only save once per session to avoid spamming the API
+        if (hasCompletedLesson) return; 
+        
+        setHasCompletedLesson(true);
+        console.log(`Lesson complete with score ${finalScore}! Saving progress...`);
+        
+        try {
+            const response = await fetch('/api/progress/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    lesson_slug: 'asl-alphabet', // This MUST match the slug in your dashboard
+                    completed: true,
+                    score: finalScore,
+                }),
+            });
+            
+            if (response.ok) {
+                console.log('Progress saved successfully!');
+            } else {
+                console.error('Failed to save progress:', await response.text());
+            }
+        } catch (error) {
+            console.error('Error saving progress:', error);
+        }
+    }, [hasCompletedLesson]);
+
+    useEffect(() => {
+        // When score hits the goal, mark as complete
+        if (score >= GOAL_SCORE && !hasCompletedLesson) {
+            markLessonAsCompleted(score);
+        }
+    }, [score, hasCompletedLesson, markLessonAsCompleted]);
+
     const generateRandomLetter = useCallback(() => {
         const randomIndex = Math.floor(Math.random() * ALPHABET.length);
         setCurrentLetter(ALPHABET[randomIndex]);
@@ -76,6 +118,12 @@ export default function ASLAlphabetPage() {
         firstCorrectDetectionTimeRef.current = null;
         setShowAnswer(false);
     }, []);
+
+    const resetScore = () => {
+        setScore(0);
+        generateRandomLetter(); // Also get a new letter when resetting
+        setHasCompletedLesson(false);
+    };
 
     // Backend hand detection function
     const detectHandSign = useCallback(async () => {
@@ -147,6 +195,7 @@ export default function ASLAlphabetPage() {
                                 setDetectedLetter(null);
                                 justCompletedRef.current = false;
                                 firstCorrectDetectionTimeRef.current = null;
+                                setScore(prevScore => prevScore + 1);
                                 setShowAnswer(false);
                             }, 1500);
                         }
@@ -268,6 +317,24 @@ export default function ASLAlphabetPage() {
                         <CardHeader>
                             <CardTitle className="text-2xl font-semibold">Sign This Letter</CardTitle>
                             <CardDescription>Use your webcam to sign the letter shown below</CardDescription>
+                            <div className="text-right">
+                                    <div className="text-sm font-medium text-muted-foreground">SCORE</div>
+                                    <div className="text-3xl font-bold text-primary">{score}</div>
+                                    <div className="text-right flex-shrink-0">
+                                    <div className="text-sm font-medium text-muted-foreground">SCORE</div>
+                                    {/* MODIFIED: Show score out of 10 */}
+                                    <div className="text-3xl font-bold text-primary">
+                                        {score} <span className="text-lg text-muted-foreground">/ {GOAL_SCORE}</span>
+                                    </div>
+                                    {/* ADDED: Completion Checkmark */}
+                                    {hasCompletedLesson && (
+                                        <div className="flex items-center justify-end text-green-600 font-semibold text-sm mt-1">
+                                            <CheckCircle className="mr-1 h-4 w-4" />
+                                            Complete!
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </CardHeader>
                         <CardContent className="flex-1 flex flex-col items-center justify-center gap-6">
                             {!currentLetter ? (
