@@ -24,9 +24,9 @@ type Problem = {
     answer: number;
 };
 
-// Generate basic arithmetic problems with answers 1-10
+// Generate basic arithmetic problems with answers 0-9
 const generateProblem = (): Problem => {
-    const answer = Math.floor(Math.random() * 10) + 1; // Random answer between 1-10
+    const answer = Math.floor(Math.random() * 10); // Random answer between 0-9
 
     // Generate different types of arithmetic problems
     const problemTypes: Problem[] = [];
