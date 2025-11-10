@@ -12,10 +12,6 @@ import confetti from 'canvas-confetti';
 const REQUIRED_HOLD_DURATION = 500; // ms (kept but not used for completion now)
 const GOAL_SCORE = 10;
 
-const getRandomWord = () => {
-    const randomIndex = Math.floor(Math.random() * WORDS.length);
-    return WORDS[randomIndex];
-};
 
 export default function ASLBasicWordsPage() {
     const router = useRouter();
@@ -30,6 +26,8 @@ export default function ASLBasicWordsPage() {
     const [score, setScore] = useState(0);
     const [highScore, setHighScore] = useState<number | null>(null);
     const [hasCompletedLesson, setHasCompletedLesson] = useState(false);
+    const [usedWords, setUsedWords] = useState<string[]>([]);
+
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -84,6 +82,36 @@ export default function ASLBasicWordsPage() {
             colors: ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b']
         });
     }, []);
+    const pickNewWord = useCallback(() => {
+        setUsedWords((prevUsed) => {
+            // Find all words not yet used
+            let available = WORDS.filter((w) => !prevUsed.includes(w));
+            let newUsed = prevUsed;
+
+            // If we've used them all, reset the pool
+            if (available.length === 0) {
+                available = WORDS;
+                newUsed = [];
+            }
+
+            // Pick a random word from available
+            const nextWord =
+                available[Math.floor(Math.random() * available.length)];
+
+            // Update UI state for the new word
+            setCurrentWord(nextWord);
+            setDetectedWord(null);
+            setIsCorrect(null);
+            justCompletedRef.current = false;
+            firstCorrectDetectionTimeRef.current = null;
+            setDisplayedWord(null);
+            setFramesLeft(0);
+            framesSinceResetRef.current = 0;
+            setCountdown(3);
+
+            return [...newUsed, nextWord];
+        });
+    }, []);
 
     // Clear the displayed word when the frame counter hits 0
     useEffect(() => {
@@ -99,10 +127,11 @@ export default function ASLBasicWordsPage() {
     // Set initial random word on mount
     useEffect(() => {
         const timer = setTimeout(() => {
-            setCurrentWord(getRandomWord());
+            pickNewWord();
         }, 0);
         return () => clearTimeout(timer);
-    }, []);
+    }, [pickNewWord]);
+
 
     // Fetch previous progress on mount
     useEffect(() => {
@@ -193,18 +222,7 @@ export default function ASLBasicWordsPage() {
         };
     }, [startWebcam]);
 
-    const generateRandomWord = useCallback(() => {
-        const randomIndex = Math.floor(Math.random() * WORDS.length);
-        setCurrentWord(WORDS[randomIndex]);
-        setDetectedWord(null);
-        setIsCorrect(null);
-        justCompletedRef.current = false;
-        firstCorrectDetectionTimeRef.current = null;
-        setDisplayedWord(null);
-        setFramesLeft(0);
-        framesSinceResetRef.current = 0;
-        setCountdown(3); // reset countdown for new word
-    }, []);
+
 
     // Call backend once, return whether we reached confidence threshold & success
     const detectHandSign = useCallback(async () => {
@@ -300,7 +318,7 @@ export default function ASLBasicWordsPage() {
                 // Move to next word after a brief pause so user sees green state
                 setTimeout(() => {
                     setScore(prevScore => prevScore + 1);
-                    generateRandomWord();
+                    pickNewWord();
                     setIsCorrect(null);
                     setDetectedWord(null);
                     setDisplayedWord(null);
@@ -317,7 +335,7 @@ export default function ASLBasicWordsPage() {
             console.error('detectHandSign failed:', err);
             return { confident: false };
         }
-    }, [isTracking, currentWord, generateRandomWord]);
+    }, [isTracking, currentWord, pickNewWord]);
 
     // 🔁 Async loop instead of setInterval – feels instant
     useEffect(() => {
@@ -505,7 +523,7 @@ export default function ASLBasicWordsPage() {
 
                             <div className="flex flex-col sm:flex-row gap-3 w-full">
                                 <Button
-                                    onClick={generateRandomWord}
+                                    onClick={pickNewWord}
                                     variant="outline"
                                     size="lg"
                                     className="flex-1"

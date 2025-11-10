@@ -1,1 +1,1 @@
-export const WORDS = ['Dad', 'Mom', 'Cat', 'No', 'Can', 'Drink', 'Bath', 'Car', 'Ball', 'Owl', 'Think']
+export const WORDS = ['Dad', 'Mom', 'Cat', 'No', 'Can', 'Drink', 'Bath', 'Car', 'Balloon', 'Owl', 'Think']
