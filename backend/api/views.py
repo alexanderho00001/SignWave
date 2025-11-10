@@ -22,6 +22,7 @@ from .islr_loader import (
     islr_model,
     idx_to_sign,
     holistic,
+    get_holistic_for_session,
     sequence_buffers,
     SEQ_LEN,
     THRESH_HOLD,
@@ -583,6 +584,11 @@ def track_video_sequence(request):
         # Reset the per-session buffer if requested
         if reset:
             sequence_buffers[session_id] = []
+            # Also reset the holistic instance for this session to avoid timestamp issues
+            from .islr_loader import holistic_instances
+            if session_id in holistic_instances:
+                holistic_instances[session_id].close()
+                del holistic_instances[session_id]
             return Response({
                 'message': 'Buffer reset',
                 'buffer_length': 0,
@@ -610,8 +616,10 @@ def track_video_sequence(request):
             return Response({"error": "Could not decode image"}, status=400)
 
         # Run MediaPipe Holistic (face + pose + both hands)
+        # Use per-session instance to avoid timestamp mismatch errors
+        session_holistic = get_holistic_for_session(session_id)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = holistic.process(rgb_frame)
+        results = session_holistic.process(rgb_frame)
 
         # --- Build landmarks for this frame (like main.py) ---
         try:

@@ -15,7 +15,7 @@ import {
 import { Room } from '@/lib/types';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-const NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const NUMBERS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 const BASIC_WORDS = ['HELLO', 'THANK', 'YOU', 'YES', 'NO', 'PLEASE', 'SORRY', 'HELP', 'WATER', 'FOOD'];
 
 type ProblemType = 'alphabet' | 'number' | 'word';
@@ -59,6 +59,9 @@ export default function ASLCompetitionPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [justAnswered, setJustAnswered] = useState(false); // Prevent multiple answers for same problem
+    const [currentPrediction, setCurrentPrediction] = useState<string | null>(null); // Current word prediction (even if low confidence)
+    const [predictionConfidence, setPredictionConfidence] = useState<number>(0); // Confidence level of current prediction
+    const [bufferLength, setBufferLength] = useState<number>(0); // Current buffer length for word detection
 
     const roomPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -92,13 +95,25 @@ export default function ASLCompetitionPage() {
             const userId = getCurrentUserId();
             setIsHost(roomData.host_id === userId);
 
-            // Reset justAnswered if problem changed
+            // Reset justAnswered if problem changed or game just started
             if (room && room.current_problem && roomData.current_problem) {
                 const oldProblem = room.current_problem;
                 const newProblem = roomData.current_problem;
                 if (oldProblem.question !== newProblem.question || oldProblem.answer !== newProblem.answer) {
                     setJustAnswered(false);
+                    setDetectedValue(null);
+                    setShowFeedback(null);
+                    setCurrentPrediction(null);
+                    setPredictionConfidence(0);
+                    setBufferLength(0);
                 }
+            } else if (!room?.is_started && roomData.is_started) {
+                // Game just started, reset all detection state
+                setJustAnswered(false);
+                setDetectedValue(null);
+                setShowFeedback(null);
+                setCurrentPrediction(null);
+                setPredictionConfidence(0);
             }
 
             setLoading(false);
@@ -159,6 +174,13 @@ export default function ASLCompetitionPage() {
             is_started: true,
             current_problem: newProblem,
         });
+        
+        // Reset game state
+        setJustAnswered(false);
+        setDetectedValue(null);
+        setShowFeedback(null);
+        setCurrentPrediction(null);
+        setPredictionConfidence(0);
     }, [room, isHost, updateRoom, generateNewProblem]);
 
     // Handle skip
@@ -172,10 +194,13 @@ export default function ASLCompetitionPage() {
         await updateRoom({
             [isHostUser ? 'host_skipped' : 'guest_skipped']: true,
             current_problem: newProblem,
+            last_solved_by: undefined, // Clear solved message when skipping
         });
 
         setDetectedValue(null);
         setShowFeedback(null);
+        setCurrentPrediction(null);
+        setPredictionConfidence(0);
         setJustAnswered(false);
         setSkipDialogOpen(false);
     }, [room, updateRoom, generateNewProblem]);
@@ -201,7 +226,15 @@ export default function ASLCompetitionPage() {
 
         const currentProblem = room.current_problem;
 
-        if (detected === currentProblem.answer) {
+        // Compare answers - case-insensitive for strings, strict for numbers
+        let isCorrect = false;
+        if (typeof detected === 'string' && typeof currentProblem.answer === 'string') {
+            isCorrect = detected.toLowerCase().trim() === currentProblem.answer.toLowerCase().trim();
+        } else {
+            isCorrect = detected === currentProblem.answer;
+        }
+
+        if (isCorrect) {
             // Prevent multiple answers for the same problem
             setJustAnswered(true);
             setShowFeedback('correct');
@@ -224,12 +257,21 @@ export default function ASLCompetitionPage() {
                 [isHostUser ? 'host_score' : 'guest_score']: isHostUser ? newHostScore : newGuestScore,
                 is_finished: gameFinished,
                 current_problem: newProblem,
-                last_solved_by: userId,
+                last_solved_by: userId, // Set who solved it
             });
+
+            // Clear the "You solved it!" message after showing it briefly
+            setTimeout(async () => {
+                if (newProblem) {
+                    await updateRoom({ last_solved_by: undefined });
+                }
+            }, 2000); // Clear after 2 seconds
 
             setTimeout(() => {
                 setShowFeedback(null);
                 setDetectedValue(null);
+                setCurrentPrediction(null);
+                setPredictionConfidence(0);
                 // Reset justAnswered will happen when new problem is fetched
             }, 1500);
         } else {
@@ -241,30 +283,52 @@ export default function ASLCompetitionPage() {
     }, [room, justAnswered, updateRoom, generateNewProblem]);
 
     // Start webcam for current user
-    useEffect(() => {
-        const startWebcam = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: 640, height: 480 },
-                });
-                
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                }
-            } catch (err) {
-                console.error('Error accessing webcam:', err);
+    const startWebcam = useCallback(async () => {
+        try {
+            // Stop existing stream if any
+            if (videoRef.current?.srcObject) {
+                const existingStream = videoRef.current.srcObject as MediaStream;
+                existingStream.getTracks().forEach(track => track.stop());
             }
-        };
 
-        startWebcam();
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480, facingMode: 'user' },
+            });
+            
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                // Ensure video plays
+                await videoRef.current.play().catch(err => {
+                    console.error('Error playing video:', err);
+                });
+            }
+        } catch (err) {
+            console.error('Error accessing webcam:', err);
+        }
+    }, []);
+
+    // Initialize webcam on mount and restart when game starts
+    useEffect(() => {
+        // Only start webcam if game is started (video element is rendered)
+        if (!room?.is_started) {
+            return;
+        }
+
+        // Small delay to ensure video element is mounted
+        const timer = setTimeout(() => {
+            if (videoRef.current) {
+                startWebcam();
+            }
+        }, 200);
 
         return () => {
+            clearTimeout(timer);
             if (videoRef.current?.srcObject) {
                 const stream = videoRef.current.srcObject as MediaStream;
                 stream.getTracks().forEach(track => track.stop());
             }
         };
-    }, []);
+    }, [startWebcam, room?.is_started]);
 
     // Backend hand detection function
     const detectHandSign = useCallback(async () => {
@@ -292,19 +356,31 @@ export default function ASLCompetitionPage() {
             if (currentProblem.type === 'alphabet') {
                 endpoint = 'http://localhost:8000/api/test-siglip/';
             } else if (currentProblem.type === 'number') {
-                endpoint = 'http://localhost:8000/api/track-asl-numbers/';
+                endpoint = 'http://localhost:8000/api/track-numbers/';
             } else if (currentProblem.type === 'word') {
                 endpoint = 'http://localhost:8000/api/track-video/';
             }
 
             if (!endpoint) return;
 
+            // Generate unique session_id for this user/room combination
+            // Use roomCode and userId to create a unique session per user per room
+            const userId = getCurrentUserId();
+            const sessionId = `competition-${roomCode || 'default'}-${userId || 'user'}`;
+
+            const requestBody: any = { image: imageData };
+            if (currentProblem.type === 'word') {
+                // track-video requires session_id for proper sequence buffering
+                // Each user in each room gets their own session for proper MediaPipe timestamp tracking
+                requestBody.session_id = sessionId;
+            }
+
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ image: imageData }),
+                body: JSON.stringify(requestBody),
             });
 
             if (!response.ok) {
@@ -350,10 +426,46 @@ export default function ASLCompetitionPage() {
                     }
                 }
             } else if (currentProblem.type === 'word') {
-                // track-video returns {predicted_sign: "...", confidence: ...}
+                // track-video returns {predicted_sign: "...", confidence: ..., buffer_length: ...}
+                const confidence = data.confidence ?? 0;
+                const threshold = 30; // Same threshold as asl-basics (30%)
+                const currentBufferLength = data.buffer_length ?? 0;
+                const SEQ_LEN = 30; // Required frames for prediction
+
+                // Update buffer length for UI display
+                setBufferLength(currentBufferLength);
+
+                console.log('Word detection:', {
+                    predicted_sign: data.predicted_sign,
+                    confidence: confidence,
+                    buffer_length: currentBufferLength,
+                    needs_more_frames: currentBufferLength < SEQ_LEN
+                });
+                
+                // Always show the prediction and confidence for user feedback
                 if (data.predicted_sign) {
+                    setCurrentPrediction(data.predicted_sign);
+                    setPredictionConfidence(confidence);
                     setDetectedValue(data.predicted_sign);
-                    checkAnswer(data.predicted_sign);
+                    
+                    // Only check answer if confidence meets threshold
+                    if (confidence >= threshold) {
+                        checkAnswer(data.predicted_sign);
+                    } else {
+                        // Show that prediction is too low confidence
+                        setShowFeedback('incorrect');
+                        setTimeout(() => {
+                            setShowFeedback(null);
+                        }, 1000);
+                    }
+                } else {
+                    // No prediction yet - buffer might be filling up or confidence too low
+                    // Don't clear currentPrediction immediately - let user see last prediction
+                    // Only clear if buffer was reset (bufferLength === 0)
+                    if (currentBufferLength === 0) {
+                        setCurrentPrediction(null);
+                        setPredictionConfidence(0);
+                    }
                 }
             }
         } catch (error) {
@@ -363,7 +475,7 @@ export default function ASLCompetitionPage() {
 
     // Hand detection when game is active
     useEffect(() => {
-        if (!room?.current_problem || !room.is_started || room.is_finished || justAnswered) {
+        if (!room?.current_problem || !room.is_started || room.is_finished) {
             if (detectionIntervalRef.current) {
                 clearInterval(detectionIntervalRef.current);
                 detectionIntervalRef.current = null;
@@ -371,8 +483,14 @@ export default function ASLCompetitionPage() {
             return;
         }
 
-        // Start detecting hand signs every 500ms
-        detectionIntervalRef.current = setInterval(detectHandSign, 500);
+        // Don't start detection if just answered (wait for new problem)
+        if (justAnswered) {
+            return;
+        }
+
+        // Start detecting hand signs every 100ms (same as asl-basics)
+        // This ensures we collect SEQ_LEN (30) frames faster for word recognition
+        detectionIntervalRef.current = setInterval(detectHandSign, 100);
 
         return () => {
             if (detectionIntervalRef.current) {
@@ -532,27 +650,44 @@ export default function ASLCompetitionPage() {
                                     playsInline
                                     muted
                                     className="w-full h-full object-cover"
+                                    style={{ backgroundColor: '#000' }}
                                 />
                                 <canvas
                                     ref={canvasRef}
                                     className="hidden"
                                 />
 
-                                {/* Detection overlay */}
-                                {room.is_started && !room.is_finished && detectedValue && (
+                                {/* Detection overlay - Buffer collection status (only for word problems) */}
+                                {room.is_started && !room.is_finished && !currentPrediction && !showFeedback && room?.current_problem?.type === 'word' && (
+                                    <div className="absolute top-4 left-4 px-4 py-2 rounded-lg shadow-lg bg-black/60 text-white">
+                                        <div className="text-lg font-bold">
+                                            {bufferLength > 0
+                                                ? `Collecting frames... (${bufferLength}/30)`
+                                                : 'Detecting sign...'}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Detection overlay - Prediction display */}
+                                {room.is_started && !room.is_finished && currentPrediction && !showFeedback && (
+                                    <div className="absolute top-4 left-4 px-4 py-2 rounded-lg shadow-lg bg-orange-500 text-white">
+                                        <div className="text-lg font-bold">
+                                            Detected: {currentPrediction} ({Math.round(predictionConfidence)}%)
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Detection overlay - Feedback (correct/incorrect) */}
+                                {room.is_started && !room.is_finished && showFeedback && (
                                     <div className={`absolute top-4 left-4 px-4 py-2 rounded-lg shadow-lg ${
                                         showFeedback === 'correct' 
                                             ? 'bg-green-500' 
-                                            : showFeedback === 'incorrect'
-                                                ? 'bg-red-500'
-                                                : 'bg-orange-500'
+                                            : 'bg-red-500'
                                     } text-white`}>
                                         <div className="text-lg font-bold">
                                             {showFeedback === 'correct' 
                                                 ? '✅ Correct!' 
-                                                : showFeedback === 'incorrect'
-                                                    ? `✗ ${detectedValue}`
-                                                    : `Detected: ${detectedValue}`}
+                                                : `✗ ${detectedValue}`}
                                         </div>
                                     </div>
                                 )}

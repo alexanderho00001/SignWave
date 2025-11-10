@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { WORDS } from '@/lib/data/words';
 
-const WORDS = ['Dad', 'Mom', 'Cat', 'No', 'Can', 'Drink', 'Bath', 'Car', 'Ball', 'Owl', 'Think'];
 const REQUIRED_HOLD_DURATION = 500; // ms (kept but not used for completion now)
 
 const getRandomWord = () => {

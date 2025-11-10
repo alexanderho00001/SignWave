@@ -47,12 +47,25 @@ with open(LABEL_MAP_PATH, "r", encoding="utf-8") as f:
 
 idx_to_sign = {int(v): k for k, v in sign_to_idx.items()}
 
-# 3) MediaPipe Holistic
+# 3) MediaPipe Holistic - Create per-session instances to avoid timestamp conflicts
 mp_holistic = mp.solutions.holistic
+# Global holistic instance (for backward compatibility)
 holistic = mp_holistic.Holistic(
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5,
 )
+
+# Per-session holistic instances to avoid timestamp mismatch errors
+holistic_instances = {}
+
+def get_holistic_for_session(session_id):
+    """Get or create a holistic instance for a specific session"""
+    if session_id not in holistic_instances:
+        holistic_instances[session_id] = mp_holistic.Holistic(
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+        )
+    return holistic_instances[session_id]
 
 # 4) Per-session sequence buffers
 sequence_buffers = {}
