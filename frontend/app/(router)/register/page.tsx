@@ -19,9 +19,12 @@ import { Label } from "@/components/ui/label";
 export default function RegisterPage() {
     const router = useRouter();
     const [formData, setFormData] = useState({
+        firstName: "",
+        lastName: "",
         username: "",
         email: "",
         password: "",
+        passwordConfirmation: "",
     });
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -36,16 +39,37 @@ export default function RegisterPage() {
         setError(null);
         setLoading(true);
 
+        // Validate password confirmation
+        if (formData.password !== formData.passwordConfirmation) {
+            setError("Passwords do not match");
+            setLoading(false);
+            return;
+        }
+
+        // Validate required fields
+        if (!formData.firstName || !formData.lastName) {
+            setError("First name and last name are required");
+            setLoading(false);
+            return;
+        }
+
         try {
-            const res = await fetch("http://localhost:8000/api/register/", {
+            const res = await fetch("/api/user", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(formData),
+                body: JSON.stringify({
+                    firstName: formData.firstName,
+                    lastName: formData.lastName,
+                    name: `${formData.firstName} ${formData.lastName}`,
+                    username: formData.username,
+                    email: formData.email,
+                    password: formData.password,
+                }),
             });
 
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                throw new Error(data.detail || "Registration failed");
+                throw new Error(data.error || data.detail || "Registration failed");
             }
 
             // after successful signup, send them back to login
@@ -71,6 +95,34 @@ export default function RegisterPage() {
 
                 <CardContent>
                     <form onSubmit={handleSubmit} className="space-y-6">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="firstName">First Name</Label>
+                                <Input
+                                    id="firstName"
+                                    name="firstName"
+                                    value={formData.firstName}
+                                    onChange={handleChange}
+                                    autoComplete="given-name"
+                                    required
+                                    disabled={loading}
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="lastName">Last Name</Label>
+                                <Input
+                                    id="lastName"
+                                    name="lastName"
+                                    value={formData.lastName}
+                                    onChange={handleChange}
+                                    autoComplete="family-name"
+                                    required
+                                    disabled={loading}
+                                />
+                            </div>
+                        </div>
+
                         <div className="space-y-2">
                             <Label htmlFor="username">Username</Label>
                             <Input
@@ -105,6 +157,20 @@ export default function RegisterPage() {
                                 name="password"
                                 type="password"
                                 value={formData.password}
+                                onChange={handleChange}
+                                autoComplete="new-password"
+                                required
+                                disabled={loading}
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="passwordConfirmation">Confirm Password</Label>
+                            <Input
+                                id="passwordConfirmation"
+                                name="passwordConfirmation"
+                                type="password"
+                                value={formData.passwordConfirmation}
                                 onChange={handleChange}
                                 autoComplete="new-password"
                                 required
