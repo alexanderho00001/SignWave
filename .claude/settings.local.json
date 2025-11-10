@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\Users\\rimsh\\Downloads\\asl-signs\")",
+      "Bash(dir \"C:\\Users\\rimsh\\Downloads\\Google-Isolated-Sign-Language-Recognition-Kaggle-main\")",
+      "Bash(cat:*)",
+      "Bash(dir \"C:\\Users\\rimsh\\Downloads\\Google-Isolated-Sign-Language-Recognition-Kaggle-main\\vizualisation_scripts\")",
+      "Bash(mkdir:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(npm install:*)",
+      "Bash(dir:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

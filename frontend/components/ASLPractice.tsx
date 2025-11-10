@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import Image from 'next/image';
+import { ASLVisualization } from './ASLVisualization';
 
 const ASL_LETTERS = ['A', 'B', 'C', 'I', 'L', 'V', 'Y'];
 
@@ -11,6 +12,7 @@ export default function ASLPractice() {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(0);
+  const [showVisualization, setShowVisualization] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,9 +108,16 @@ export default function ASLPractice() {
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold text-lg"
+            className="w-full py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold text-lg mb-3"
           >
             📸 Take Photo / Upload Image
+          </button>
+
+          <button
+            onClick={() => setShowVisualization(true)}
+            className="w-full py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold"
+          >
+            📹 Show Me How to Sign "{currentLetter}"
           </button>
 
           {result && (
@@ -161,6 +170,20 @@ export default function ASLPractice() {
             </div>
           </div>
         </div>
+
+        {/* Visualization Modal */}
+        {showVisualization && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="max-w-2xl w-full">
+              <ASLVisualization
+                signName={currentLetter}
+                signType="letters"
+                onClose={() => setShowVisualization(false)}
+                autoPlay={true}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

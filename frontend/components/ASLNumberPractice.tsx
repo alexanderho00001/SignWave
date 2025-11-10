@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { ASLVisualization } from './ASLVisualization';
 
 // --- MODIFIED: Changed to Numbers 0-9 ---
 const ASL_NUMBERS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
@@ -16,7 +17,9 @@ export default function ASLNumberPractice() {
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [isTracking, setIsTracking] = useState(false);
-  
+  const [showVisualization, setShowVisualization] = useState(false);
+  const [wrongAttempts, setWrongAttempts] = useState(0);
+
   const justCompletedRef = useRef(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const firstCorrectDetectionTimeRef = useRef<number | null>(null);
@@ -116,6 +119,7 @@ export default function ASLNumberPractice() {
                 
                 setIsCorrect(null);
                 setDetectedItem(null);
+                setWrongAttempts(0); // Reset wrong attempts on success
                 justCompletedRef.current = false;
               }, 1500);
             }
@@ -124,6 +128,16 @@ export default function ASLNumberPractice() {
           console.log('❌ Wrong sign. Resetting timer.');
           setIsCorrect(false);
           firstCorrectDetectionTimeRef.current = null;
+          setAttempts(prev => prev + 1);
+          setWrongAttempts(prev => {
+            const newCount = prev + 1;
+            // Auto-show demo after 3 wrong attempts
+            if (newCount >= 3) {
+              setShowVisualization(true);
+              return 0; // Reset counter after showing demo
+            }
+            return newCount;
+          });
         }
 
       } else {
@@ -208,6 +222,17 @@ export default function ASLNumberPractice() {
                   </div>
                 </div>
               )}
+
+              {wrongAttempts > 0 && wrongAttempts < 3 && (
+                <div className="absolute bottom-4 right-4 px-4 py-2 rounded-lg shadow-lg bg-yellow-500 text-white">
+                  <div className="text-sm font-bold">
+                    Wrong attempts: {wrongAttempts}/3
+                  </div>
+                  <div className="text-xs">
+                    (Demo will auto-show at 3)
+                  </div>
+                </div>
+              )}
             </div>
             
             <button
@@ -247,6 +272,13 @@ export default function ASLNumberPractice() {
                   <li>Move to the next number when correct!</li>
                 </ol>
               </div>
+
+              <button
+                onClick={() => setShowVisualization(true)}
+                className="w-full mt-4 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold"
+              >
+                📹 Show Me How to Sign "{currentNumber}"
+              </button>
             </div>
 
             {/* Score card */}
@@ -293,6 +325,20 @@ export default function ASLNumberPractice() {
             ))}
           </div>
         </div>
+
+        {/* Visualization Modal */}
+        {showVisualization && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="max-w-2xl w-full">
+              <ASLVisualization
+                signName={currentNumber}
+                signType="numbers"
+                onClose={() => setShowVisualization(false)}
+                autoPlay={true}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
