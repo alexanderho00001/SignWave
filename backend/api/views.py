@@ -358,8 +358,8 @@ def recognize_asl_number(landmarks):
         return tip['y'] < mcp['y'] - 0.05 
 
     def is_thumb_up(tip, ip_knuckle):
-        # Thumb "up" is more about being above its own knuckle
-        return tip['y'] < ip_knuckle['y']
+        # --- MODIFIED: Thumb must be *significantly* higher than its knuckle ---
+        return tip['y'] < ip_knuckle['y'] - 0.03
     
     # --- Get Finger States ---
     index_up = is_finger_up(index_tip, index_mcp)
@@ -368,7 +368,7 @@ def recognize_asl_number(landmarks):
     pinky_up = is_finger_up(pinky_tip, pinky_mcp)
     thumb_up = is_thumb_up(thumb_tip, thumb_ip)
     
-    print(f"    DEBUG (Num): I_up={index_up}, M_up={middle_up}, R_up={ring_up}, P_up={pinky_up}")
+    print(f"    DEBUG (Num): I_up={index_up}, M_up={middle_up}, R_up={ring_up}, P_up={pinky_up}, T_up={thumb_up}")
     
     # --- Get Distances for 6, 7, 8, 9 ---
     TOUCH_THRESHOLD = 0.06
@@ -378,8 +378,6 @@ def recognize_asl_number(landmarks):
     thumb_to_pinky_dist = get_distance(thumb_tip, pinky_tip)
 
     # --- Number Logic (Order is Critical!) ---
-
-    # --- MODIFIED: Correct logic for 6, 7, 8, 9 ---
     
     # 9: Index finger touches thumb. Middle, Ring, Pinky are UP.
     if (middle_up and ring_up and pinky_up) and (not index_up) and (thumb_to_index_dist < TOUCH_THRESHOLD):
@@ -410,6 +408,7 @@ def recognize_asl_number(landmarks):
         return '5'
         
     # 4: 4 fingers up (no thumb)
+    # This will now trigger correctly because thumb_up will be False
     if index_up and middle_up and ring_up and pinky_up:
         print("✅ Recognized: 4")
         return '4'
@@ -420,6 +419,7 @@ def recognize_asl_number(landmarks):
         return '3'
 
     # 2: Index and Middle up (like 'V')
+    # This will now trigger correctly because thumb_up will be False
     if index_up and middle_up and not ring_up and not pinky_up:
         print("✅ Recognized: 2")
         return '2'
