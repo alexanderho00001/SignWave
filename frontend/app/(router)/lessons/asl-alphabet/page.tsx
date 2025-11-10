@@ -96,7 +96,7 @@ export default function ASLAlphabetPage() {
         const imageData = canvas.toDataURL('image/jpeg', 0.8);
 
         try {
-            const response = await fetch('http://localhost:8000/api/track-hands/', {
+            const response = await fetch('http://localhost:8000/api/test-siglip/', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -106,8 +106,25 @@ export default function ASLAlphabetPage() {
 
             const data = await response.json();
 
-            if (data.letters && data.letters.length > 0) {
-                const letter = data.letters[0];
+            // Get the most accurate prediction from SigLIP model response
+            let letter: string | null = null;
+            
+            // Primary: Use top_prediction (smoothed prediction with highest confidence)
+            if (data.top_prediction && data.top_prediction.letter) {
+                letter = data.top_prediction.letter;
+            } else if (data.letters && Array.isArray(data.letters) && data.letters.length > 0) {
+                // Fallback to letters array if top_prediction not available
+                letter = data.letters[0];
+            } else if (data.all_predictions && typeof data.all_predictions === 'object') {
+                // Fallback: get highest confidence prediction from all_predictions
+                const predictions = Object.entries(data.all_predictions) as [string, number][];
+                if (predictions.length > 0) {
+                    const sorted = predictions.sort((a, b) => b[1] - a[1]);
+                    letter = sorted[0][0];
+                }
+            }
+
+            if (letter) {
                 setDetectedLetter(letter);
 
                 const correct = letter === currentLetter;
