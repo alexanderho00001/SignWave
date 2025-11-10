@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { WORDS } from '@/lib/data/words';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import confetti from 'canvas-confetti';
 
 const REQUIRED_HOLD_DURATION = 500; // ms (kept but not used for completion now)
 const GOAL_SCORE = 10;
@@ -33,6 +34,54 @@ export default function ASLBasicWordsPage() {
     const firstCorrectDetectionTimeRef = useRef<number | null>(null);
     const justCompletedRef = useRef(false);
     const framesSinceResetRef = useRef(0); // how many frames we've sent for current word
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Initialize success sound
+    useEffect(() => {
+        audioRef.current = new Audio('/sounds/success.mp3');
+        audioRef.current.volume = 0.5;
+        audioRef.current.onerror = () => {
+            console.log('Using Web Audio API fallback tone');
+        };
+    }, []);
+
+    // Success feedback with confetti and sound
+    const playSuccessFeedback = useCallback(() => {
+        // Play sound or fallback tone
+        if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(() => {
+                // Fallback: Create a simple ding sound with Web Audio API
+                try {
+                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    oscillator.frequency.value = 800;
+                    oscillator.type = 'sine';
+
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.3);
+                } catch (err) {
+                    console.log('Audio not available');
+                }
+            });
+        }
+
+        // Trigger confetti
+        confetti({
+            particleCount: 50,
+            spread: 60,
+            origin: { y: 0.6 },
+            colors: ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b']
+        });
+    }, []);
 
     // Clear the displayed word when the frame counter hits 0
     useEffect(() => {
@@ -242,6 +291,9 @@ export default function ASLBasicWordsPage() {
             if (!justCompletedRef.current) {
                 justCompletedRef.current = true;
                 setIsCorrect(true);
+
+                // Play success feedback
+                playSuccessFeedback();
 
                 // Move to next word after a brief pause so user sees green state
                 setTimeout(() => {
