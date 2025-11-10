@@ -11,27 +11,30 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
+import { WORDS as BASIC_WORDS } from '@/lib/data/words';
 
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
 const FALL_SPEED = 0.5; // pixels per frame
 const SPAWN_INTERVAL = 3000; // milliseconds
 const GAME_AREA_HEIGHT = 600; // pixels
 
-type FallingLetter = {
+type FallingWord = {
     id: string;
-    letter: string;
+    word: string;
     x: number;
     y: number;
     speed: number;
 };
 
-export default function ASLAlphabetGame() {
+export default function ASLBasicsGame() {
     const [gameState, setGameState] = useState<'menu' | 'playing' | 'paused' | 'gameover'>('menu');
-    const [fallingLetters, setFallingLetters] = useState<FallingLetter[]>([]);
+    const [fallingWords, setFallingWords] = useState<FallingWord[]>([]);
     const [score, setScore] = useState(0);
     const [lives, setLives] = useState(3);
-    const [detectedLetter, setDetectedLetter] = useState<string | null>(null);
+    const [detectedWord, setDetectedWord] = useState<string | null>(null);
     const [currentPrediction, setCurrentPrediction] = useState<string | null>(null);
+    const [predictionConfidence, setPredictionConfidence] = useState<number>(0);
+    const [bufferLength, setBufferLength] = useState<number>(0);
     const gameAreaRef = useRef<HTMLDivElement>(null);
     const animationFrameRef = useRef<number | null>(null);
     const lastSpawnTimeRef = useRef<number>(0);
@@ -42,44 +45,44 @@ export default function ASLAlphabetGame() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Generate random letter
-    const getRandomLetter = useCallback(() => {
-        return ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+    // Generate random word
+    const getRandomWord = useCallback(() => {
+        return BASIC_WORDS[Math.floor(Math.random() * BASIC_WORDS.length)];
     }, []);
 
-    // Spawn a new falling letter
-    const spawnLetter = useCallback(() => {
+    // Spawn a new falling word
+    const spawnWord = useCallback(() => {
         if (!gameAreaRef.current) return;
 
         const gameAreaWidth = gameAreaRef.current.clientWidth;
-        const letterWidth = 60; // Approximate width of letter
-        const maxX = gameAreaWidth - letterWidth;
+        const wordWidth = 120; // Approximate width of word
+        const maxX = gameAreaWidth - wordWidth;
         const x = Math.random() * maxX;
 
-        const newLetter: FallingLetter = {
+        const newWord: FallingWord = {
             id: `${Date.now()}-${Math.random()}`,
-            letter: getRandomLetter(),
+            word: getRandomWord(),
             x,
             y: 0,
             speed: FALL_SPEED + Math.random() * 1, // Slight variation in speed
         };
 
-        setFallingLetters((prev) => [...prev, newLetter]);
-    }, [getRandomLetter]);
+        setFallingWords((prev) => [...prev, newWord]);
+    }, [getRandomWord]);
 
-    // Update falling letters position
-    const updateLetters = useCallback(() => {
-        setFallingLetters((prev) => {
-            const updated = prev.map((letter) => ({
-                ...letter,
-                y: letter.y + letter.speed,
+    // Update falling words position
+    const updateWords = useCallback(() => {
+        setFallingWords((prev) => {
+            const updated = prev.map((word) => ({
+                ...word,
+                y: word.y + word.speed,
             }));
 
-            // Check if any letter hit the bottom
-            const hitBottom = updated.some((letter) => letter.y >= GAME_AREA_HEIGHT);
+            // Check if any word hit the bottom
+            const hitBottom = updated.some((word) => word.y >= GAME_AREA_HEIGHT);
             if (hitBottom) {
-                // Remove letters that hit bottom and decrease lives
-                const remaining = updated.filter((letter) => letter.y < GAME_AREA_HEIGHT);
+                // Remove words that hit bottom and decrease lives
+                const remaining = updated.filter((word) => word.y < GAME_AREA_HEIGHT);
                 setLives((prevLives) => {
                     const newLives = prevLives - 1;
                     if (newLives <= 0) {
@@ -94,16 +97,17 @@ export default function ASLAlphabetGame() {
         });
     }, []);
 
-    // Check for matches between detected letter and falling letters
+    // Check for matches between detected word and falling words
     const checkMatches = useCallback((detected: string) => {
-        setFallingLetters((prev) => {
-            const matched = prev.find((letter) => letter.letter === detected);
+        setFallingWords((prev) => {
+            // Compare case-insensitively
+            const matched = prev.find((word) => word.word.toLowerCase() === detected.toLowerCase());
             if (matched) {
                 setScore((prevScore) => prevScore + 10);
                 // Show feedback
-                setDetectedLetter(detected);
-                setTimeout(() => setDetectedLetter(null), 500);
-                return prev.filter((letter) => letter.id !== matched.id);
+                setDetectedWord(detected);
+                setTimeout(() => setDetectedWord(null), 500);
+                return prev.filter((word) => word.id !== matched.id);
             }
             return prev;
         });
@@ -128,17 +132,25 @@ export default function ASLAlphabetGame() {
         const imageData = canvas.toDataURL('image/jpeg', 0.8);
 
         try {
-            // Use test-siglip endpoint for alphabet detection (same as competition game)
-            const response = await fetch('http://localhost:8000/api/test-siglip/', {
+            // Use track-video endpoint for word detection
+            const userId = localStorage.getItem('userId') || 'default';
+            const sessionId = `game-basics-${userId}`;
+
+            const response = await fetch('http://localhost:8000/api/track-video/', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ image: imageData }),
+                body: JSON.stringify({ 
+                    image: imageData,
+                    session_id: sessionId,
+                }),
             });
 
             if (!response.ok) {
                 console.error('API response not OK:', response.status, response.statusText);
+                const errorText = await response.text().catch(() => 'Unknown error');
+                console.error('Error response:', errorText);
                 return;
             }
 
@@ -149,29 +161,31 @@ export default function ASLAlphabetGame() {
             }
 
             const data = await response.json();
-            console.log('Alphabet detection response:', data);
-
-            // Extract letter from SigLIP response
-            let detectedLetter: string | null = null;
+            console.log('Word detection response:', data);
             
-            // Get the most accurate prediction (top_prediction)
-            if (data.top_prediction && data.top_prediction.letter) {
-                detectedLetter = data.top_prediction.letter;
-            } else if (data.letters && Array.isArray(data.letters) && data.letters.length > 0) {
-                // Fallback to letters array if top_prediction not available
-                detectedLetter = data.letters[0];
-            } else if (data.all_predictions && typeof data.all_predictions === 'object') {
-                // Fallback: get highest confidence prediction from all_predictions
-                const predictions = Object.entries(data.all_predictions) as [string, number][];
-                if (predictions.length > 0) {
-                    const sorted = predictions.sort((a, b) => b[1] - a[1]);
-                    detectedLetter = sorted[0][0];
-                }
-            }
+            const confidence = data.confidence ?? 0;
+            const threshold = 30; // Same threshold as other word detection
+            const currentBufferLength = data.buffer_length ?? 0;
+            const SEQ_LEN = 30;
 
-            if (detectedLetter) {
-                setCurrentPrediction(detectedLetter);
-                checkMatches(detectedLetter);
+            // Update buffer length for UI display
+            setBufferLength(currentBufferLength);
+
+            // Always show the prediction and confidence for user feedback
+            if (data.predicted_sign) {
+                setCurrentPrediction(data.predicted_sign);
+                setPredictionConfidence(confidence);
+                
+                // Only check matches if confidence meets threshold
+                if (confidence >= threshold) {
+                    checkMatches(data.predicted_sign);
+                }
+            } else {
+                // No prediction yet - clear if buffer was reset
+                if (currentBufferLength === 0) {
+                    setCurrentPrediction(null);
+                    setPredictionConfidence(0);
+                }
             }
         } catch (error) {
             console.error('Error detecting hand sign:', error);
@@ -217,14 +231,14 @@ export default function ASLAlphabetGame() {
         const gameLoop = () => {
             const now = Date.now();
 
-            // Spawn new letters at intervals
+            // Spawn new words at intervals
             if (now - lastSpawnTimeRef.current >= SPAWN_INTERVAL) {
-                spawnLetter();
+                spawnWord();
                 lastSpawnTimeRef.current = now;
             }
 
-            // Update falling letters
-            updateLetters();
+            // Update falling words
+            updateWords();
 
             animationFrameRef.current = requestAnimationFrame(gameLoop);
         };
@@ -238,7 +252,7 @@ export default function ASLAlphabetGame() {
                 cancelAnimationFrame(animationFrameRef.current);
             }
         };
-    }, [gameState, spawnLetter, updateLetters]);
+    }, [gameState, spawnWord, updateWords]);
 
     // Backend hand detection when game is playing
     useEffect(() => {
@@ -263,11 +277,13 @@ export default function ASLAlphabetGame() {
 
     const startGame = () => {
         setGameState('playing');
-        setFallingLetters([]);
+        setFallingWords([]);
         setScore(0);
         setLives(3);
-        setDetectedLetter(null);
+        setDetectedWord(null);
         setCurrentPrediction(null);
+        setPredictionConfidence(0);
+        setBufferLength(0);
     };
 
     const pauseGame = () => {
@@ -276,19 +292,21 @@ export default function ASLAlphabetGame() {
 
     const resetGame = () => {
         setGameState('menu');
-        setFallingLetters([]);
+        setFallingWords([]);
         setScore(0);
         setLives(3);
-        setDetectedLetter(null);
+        setDetectedWord(null);
         setCurrentPrediction(null);
+        setPredictionConfidence(0);
+        setBufferLength(0);
     };
 
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
-                <h1 className="text-3xl font-bold mb-2">ASL Alphabet Game</h1>
+                <h1 className="text-3xl font-bold mb-2">ASL Basic Words Game</h1>
                 <p className="text-muted-foreground">
-                    Sign the falling letters before they hit the bottom!
+                    Sign the falling words before they hit the bottom!
                 </p>
             </div>
 
@@ -300,7 +318,7 @@ export default function ASLAlphabetGame() {
                             <div className="flex justify-between items-center">
                                 <div>
                                     <CardTitle className="text-2xl font-semibold">Game</CardTitle>
-                                    <CardDescription>Sign the falling letters</CardDescription>
+                                    <CardDescription>Sign the falling words</CardDescription>
                                 </div>
                                 <div className="flex gap-4 items-center">
                                     <div className="text-right">
@@ -318,7 +336,7 @@ export default function ASLAlphabetGame() {
                             {gameState === 'menu' && (
                                 <div className="flex flex-col items-center justify-center py-20 gap-4">
                                     <p className="text-lg text-muted-foreground mb-4">
-                                        Sign letters as they fall to earn points!
+                                        Sign words as they fall to earn points!
                                     </p>
                                     <Button onClick={startGame} size="lg">
                                         Start Game
@@ -353,29 +371,29 @@ export default function ASLAlphabetGame() {
                                         ref={gameAreaRef}
                                         className="relative bg-gradient-to-b from-background to-muted/20 rounded-lg border-2 border-primary/20 overflow-hidden"
                                         style={{ height: `${GAME_AREA_HEIGHT}px` }}>
-                                        {/* Falling Letters */}
-                                        {fallingLetters.map((letter) => (
+                                        {/* Falling Words */}
+                                        {fallingWords.map((word) => (
                                             <div
-                                                key={letter.id}
+                                                key={word.id}
                                                 className="absolute transition-none"
                                                 style={{
-                                                    left: `${letter.x}px`,
-                                                    top: `${letter.y}px`,
+                                                    left: `${word.x}px`,
+                                                    top: `${word.y}px`,
                                                     transform: 'translateY(0)',
                                                 }}>
-                                                <div className="w-14 h-14 rounded-lg bg-primary/20 border-2 border-primary/40 flex items-center justify-center shadow-lg backdrop-blur-sm">
-                                                    <span className="text-3xl font-bold text-primary">
-                                                        {letter.letter}
+                                                <div className="px-4 py-2 rounded-lg bg-primary/20 border-2 border-primary/40 flex items-center justify-center shadow-lg backdrop-blur-sm">
+                                                    <span className="text-xl font-bold text-primary tracking-wide">
+                                                        {word.word}
                                                     </span>
                                                 </div>
                                             </div>
                                         ))}
 
                                         {/* Detection Feedback */}
-                                        {detectedLetter && (
+                                        {detectedWord && (
                                             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20 animate-pulse">
-                                                <div className="text-6xl font-bold text-green-500 drop-shadow-lg">
-                                                    {detectedLetter} ✓
+                                                <div className="text-4xl font-bold text-green-500 drop-shadow-lg">
+                                                    {detectedWord} ✓
                                                 </div>
                                             </div>
                                         )}
@@ -401,7 +419,7 @@ export default function ASLAlphabetGame() {
                             <CardTitle className="text-2xl font-semibold">Hand Tracker</CardTitle>
                             <CardDescription>
                                 {gameState === 'playing'
-                                    ? 'Sign the letters as they fall!'
+                                    ? 'Sign the words as they fall!'
                                     : 'Start the game to begin tracking'}
                             </CardDescription>
                         </CardHeader>
@@ -416,11 +434,20 @@ export default function ASLAlphabetGame() {
                                 />
                                 <canvas ref={canvasRef} className="hidden" />
                                 
+                                {/* Detection overlay - Buffer collection status */}
+                                {gameState === 'playing' && !currentPrediction && bufferLength > 0 && (
+                                    <div className="absolute top-4 left-4 px-4 py-2 rounded-lg shadow-lg bg-black/60 text-white">
+                                        <div className="text-lg font-bold">
+                                            Collecting frames... ({bufferLength}/30)
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Detection overlay - Prediction display */}
                                 {gameState === 'playing' && currentPrediction && (
                                     <div className="absolute top-4 left-4 px-4 py-2 rounded-lg shadow-lg bg-orange-500 text-white">
                                         <div className="text-lg font-bold">
-                                            Detected: {currentPrediction}
+                                            Detected: {currentPrediction} ({Math.round(predictionConfidence)}%)
                                         </div>
                                     </div>
                                 )}
@@ -445,15 +472,15 @@ export default function ASLAlphabetGame() {
                             <DialogHeader>
                                 <DialogTitle>How to Play</DialogTitle>
                                 <DialogDescription>
-                                    Learn how to play the ASL Alphabet Game
+                                    Learn how to play the ASL Basic Words Game
                                 </DialogDescription>
                             </DialogHeader>
                             <div className="space-y-4">
                                 <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
-                                    <li>Sign the letters as they fall from the top</li>
-                                    <li>Match the sign before the letter hits the bottom</li>
+                                    <li>Sign the words as they fall from the top</li>
+                                    <li>Match the sign before the word hits the bottom</li>
                                     <li>Earn 10 points for each correct match</li>
-                                    <li>Lose a life if a letter reaches the bottom</li>
+                                    <li>Lose a life if a word reaches the bottom</li>
                                     <li>Game ends when you run out of lives</li>
                                 </ul>
                             </div>
