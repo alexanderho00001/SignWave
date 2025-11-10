@@ -1,14 +1,16 @@
 from django.urls import path
 from .views import (
-    register_api, 
+    register_api,
     track_hands,  # Add this
     login_api,
     progress_api,
-    track_video_sequence, 
+    track_video_sequence,
     get_available_signs,
     check_model_status,
     track_asl_numbers,
-    test_siglip_model
+    test_siglip_model,
+    get_reference_sign,
+    record_reference_sign
 )
 
 urlpatterns = [
@@ -21,4 +23,6 @@ urlpatterns = [
     path("available-signs/", get_available_signs, name="available_signs"),
     path("model-status/", check_model_status, name="model_status"),
     path("test-siglip/", test_siglip_model, name="test_siglip_model"),
+    path("reference-sign/<str:sign_name>/", get_reference_sign, name="get_reference_sign"),
+    path("record-reference-sign/", record_reference_sign, name="record_reference_sign"),
 ]

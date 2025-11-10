@@ -50,10 +50,10 @@ try:
         confidence_threshold=0.2  # Minimum confidence threshold
     )
     SIGLIP_AVAILABLE = True
-    print("✅ Improved SigLIP model loaded successfully")
+    print("[OK] Improved SigLIP model loaded successfully")
 except Exception as e:
     import traceback
-    print(f"⚠️ SigLIP model not available: {e}")
+    print(f"[WARNING] SigLIP model not available: {e}")
     print(traceback.format_exc())
     SIGLIP_AVAILABLE = False
     siglip_model = None
@@ -670,7 +670,7 @@ def track_video_sequence(request):
 
         landmarks_list = landmarks_arr.tolist()
 
-        # 🔧 Ensure confidence is a finite float
+        # Ensure confidence is a finite float
         if not np.isfinite(confidence):
             confidence = 0.0
 
@@ -873,3 +873,141 @@ def progress_api(request):
         "completed": progress.completed,
         "last_score": progress.last_score,
     })
+
+
+@api_view(['GET'])
+def get_reference_sign(request, sign_name):
+    """
+    Get reference sign visualization data for a given sign name.
+
+    Args:
+        sign_name: Name of the sign (e.g., 'hello', 'A', '5')
+
+    Query parameters:
+        sign_type: Optional - 'words', 'letters', or 'numbers' (auto-detected if not provided)
+
+    Returns:
+        JSON with landmark frames for visualization
+    """
+    import os
+
+    # Get sign type from query params or auto-detect
+    sign_type = request.GET.get('sign_type', None)
+
+    # Base directory for reference signs
+    base_dir = os.path.join(os.path.dirname(__file__), '..', 'reference_signs')
+
+    # Auto-detect sign type if not provided
+    if not sign_type:
+        # Check if it's a single letter
+        if len(sign_name) == 1 and sign_name.isalpha():
+            sign_type = 'letters'
+        # Check if it's a number
+        elif sign_name.isdigit():
+            sign_type = 'numbers'
+        # Otherwise, assume it's a word
+        else:
+            sign_type = 'words'
+
+    # Construct file path
+    file_path = os.path.join(base_dir, sign_type, f'{sign_name.lower()}.json')
+
+    # Check if file exists
+    if not os.path.exists(file_path):
+        return Response({
+            'error': f'Reference sign not found for: {sign_name}',
+            'sign_name': sign_name,
+            'sign_type': sign_type,
+            'searched_path': file_path
+        }, status=404)
+
+    # Load and return the JSON data
+    try:
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+
+        return Response({
+            'sign_name': sign_name,
+            'sign_type': sign_type,
+            'data': data
+        })
+    except Exception as e:
+        return Response({
+            'error': f'Error loading reference sign: {str(e)}',
+            'sign_name': sign_name
+        }, status=500)
+
+
+@api_view(['POST'])
+def record_reference_sign(request):
+    """
+    Record a new reference sign from uploaded landmark sequence.
+
+    Expected POST data:
+        {
+            "sign_name": "hello",
+            "sign_type": "words",  // 'words', 'letters', or 'numbers'
+            "frames": [
+                {
+                    "frame": 0,
+                    "landmarks": [
+                        {"type": "face", "landmark_index": 0, "x": 0.5, "y": 0.5, "z": 0.0},
+                        ...
+                    ]
+                },
+                ...
+            ]
+        }
+
+    Returns:
+        Success message with saved file path
+    """
+    import os
+
+    sign_name = request.data.get('sign_name')
+    sign_type = request.data.get('sign_type', 'words')
+    frames = request.data.get('frames')
+
+    if not sign_name or not frames:
+        return Response({
+            'error': 'sign_name and frames are required'
+        }, status=400)
+
+    # Validate sign_type
+    if sign_type not in ['words', 'letters', 'numbers']:
+        return Response({
+            'error': 'sign_type must be one of: words, letters, numbers'
+        }, status=400)
+
+    # Base directory for reference signs
+    base_dir = os.path.join(os.path.dirname(__file__), '..', 'reference_signs')
+    output_dir = os.path.join(base_dir, sign_type)
+
+    # Ensure directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Construct file path
+    file_path = os.path.join(output_dir, f'{sign_name.lower()}.json')
+
+    # Prepare data structure
+    reference_data = {
+        'total_frames': len(frames),
+        'frames': frames
+    }
+
+    # Save to file
+    try:
+        with open(file_path, 'w') as f:
+            json.dump(reference_data, f, indent=2)
+
+        return Response({
+            'message': f'Reference sign saved successfully',
+            'sign_name': sign_name,
+            'sign_type': sign_type,
+            'file_path': file_path,
+            'total_frames': len(frames)
+        })
+    except Exception as e:
+        return Response({
+            'error': f'Error saving reference sign: {str(e)}'
+        }, status=500)

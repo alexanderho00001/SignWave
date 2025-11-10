@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { WORDS } from '@/lib/data/words';
+import { ASLVisualization } from '@/components/ASLVisualization';
 
 const REQUIRED_HOLD_DURATION = 500; // ms (kept but not used for completion now)
 
@@ -20,6 +21,7 @@ export default function ASLBasicWordsPage() {
     const [displayedWord, setDisplayedWord] = useState<string | null>(null);
     const [framesLeft, setFramesLeft] = useState(0);
     const [countdown, setCountdown] = useState(3); // 🔢 3 → 2 → 1 indicator
+    const [showVisualization, setShowVisualization] = useState(false);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -351,14 +353,25 @@ export default function ASLBasicWordsPage() {
                                 </>
                             )}
 
-                            <Button
-                                onClick={generateRandomWord}
-                                variant="outline"
-                                size="lg"
-                                className="w-full sm:w-auto"
-                            >
-                                Get New Word
-                            </Button>
+                            <div className="flex flex-col sm:flex-row gap-3 w-full">
+                                <Button
+                                    onClick={generateRandomWord}
+                                    variant="outline"
+                                    size="lg"
+                                    className="flex-1"
+                                >
+                                    Get New Word
+                                </Button>
+                                <Button
+                                    onClick={() => setShowVisualization(true)}
+                                    variant="secondary"
+                                    size="lg"
+                                    className="flex-1"
+                                    disabled={!currentWord}
+                                >
+                                    Show Me How to Sign &quot;{currentWord}&quot;
+                                </Button>
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -377,6 +390,33 @@ export default function ASLBasicWordsPage() {
                     </Card>
                 </div>
             </div>
+
+            {/* Visualization Modal */}
+            {showVisualization && currentWord && (
+                <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+                    <div className="bg-background rounded-lg max-w-4xl w-full max-h-[90vh] overflow-auto">
+                        <div className="p-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-2xl font-bold">
+                                    How to Sign: {currentWord}
+                                </h2>
+                                <Button
+                                    onClick={() => setShowVisualization(false)}
+                                    variant="ghost"
+                                    size="sm"
+                                >
+                                    ✕ Close
+                                </Button>
+                            </div>
+                            <ASLVisualization
+                                signName={currentWord}
+                                signType="words"
+                                autoPlay={true}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

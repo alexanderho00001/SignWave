@@ -1,12 +1,12 @@
 import os
 
-# 🔧 1. Disable GPU completely – force TensorFlow to use CPU
+# 1. Disable GPU completely - force TensorFlow to use CPU
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-# 🔧 2. Quiet TF a bit (optional)
+# 2. Quiet TF a bit (optional)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"  # 0 = all logs
 
-# 🔧 3. Disable XLA JIT
+# 3. Disable XLA JIT
 os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices=false --tf_xla_auto_jit=0"
 
 import json
@@ -14,7 +14,7 @@ import numpy as np
 import tensorflow as tf
 import mediapipe as mp
 
-# 🔧 4. Extra safety: turn off graph JIT and run functions eagerly
+# 4. Extra safety: turn off graph JIT and run functions eagerly
 try:
     tf.config.optimizer.set_jit(False)
 except Exception:
@@ -35,7 +35,7 @@ MODELS_PATH = [
 
 _keras_models = [get_model(max_len=SEQ_LEN) for _ in MODELS_PATH]
 for m, p in zip(_keras_models, MODELS_PATH):
-    print(f"🔁 Loading weights from {p}")
+    print(f"[*] Loading weights from {p}")
     m.load_weights(p, by_name=True, skip_mismatch=True)
 
 islr_model = TFLiteModel(islr_models=_keras_models)
