@@ -31,7 +31,7 @@ Play games with others to test your skill.
 
 1. Clone the repository
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/alexanderho00001/SignWave.git
    ```
 
 2. Go into the repository
