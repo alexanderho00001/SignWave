@@ -30,7 +30,11 @@ export default function ASLBasicWordsPage() {
     // Clear the displayed word when the frame counter hits 0
     useEffect(() => {
         if (framesLeft <= 0) {
-            setDisplayedWord(null);
+            // Use setTimeout to make setState asynchronous
+            const timer = setTimeout(() => {
+                setDisplayedWord(null);
+            }, 0);
+            return () => clearTimeout(timer);
         }
     }, [framesLeft]);
 
