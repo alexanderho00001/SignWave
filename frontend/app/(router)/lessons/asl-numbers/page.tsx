@@ -3,9 +3,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ArrowLeft, CheckCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import confetti from 'canvas-confetti';
 
 const NUMBERS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const REQUIRED_HOLD_DURATION = 50;
+const GOAL_SCORE = 10;
 
 // Generate a random number
 const getRandomNumber = () => {
@@ -14,18 +18,70 @@ const getRandomNumber = () => {
 };
 
 export default function ASLNumbersPage() {
+    const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [currentNumber, setCurrentNumber] = useState<string | null>(null);
     const [detectedNumber, setDetectedNumber] = useState<string | null>(null);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [isTracking, setIsTracking] = useState(false);
-    
+    const [score, setScore] = useState(0);
+    const [highScore, setHighScore] = useState<number | null>(null);
+    const [hasCompletedLesson, setHasCompletedLesson] = useState(false);
+
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // --- ADDED: Refs for hold logic ---
     const justCompletedRef = useRef(false);
     const firstCorrectDetectionTimeRef = useRef<number | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Initialize success sound
+    useEffect(() => {
+        audioRef.current = new Audio('/sounds/success.mp3');
+        audioRef.current.volume = 0.5;
+        audioRef.current.onerror = () => {
+            console.log('Using Web Audio API fallback tone');
+        };
+    }, []);
+
+    // Success feedback with confetti and sound
+    const playSuccessFeedback = useCallback(() => {
+        // Play sound or fallback tone
+        if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(() => {
+                // Fallback: Create a simple ding sound with Web Audio API
+                try {
+                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    oscillator.frequency.value = 800;
+                    oscillator.type = 'sine';
+
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.3);
+                } catch (err) {
+                    console.log('Audio not available');
+                }
+            });
+        }
+
+        // Trigger confetti
+        confetti({
+            particleCount: 50,
+            spread: 60,
+            origin: { y: 0.6 },
+            colors: ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b']
+        });
+    }, []);
 
     // Set random number after mount
     useEffect(() => {
@@ -34,6 +90,70 @@ export default function ASLNumbersPage() {
         }, 0);
         return () => clearTimeout(timer);
     }, []);
+
+    // Fetch previous progress on mount
+    useEffect(() => {
+        const fetchProgress = async () => {
+            try {
+                const response = await fetch('/api/progress?lesson_slug=asl-numbers-0-9');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.data.length > 0) {
+                        const lessonProgress = data.data[0];
+                        setHighScore(lessonProgress.score);
+                        if (lessonProgress.completed && lessonProgress.score >= GOAL_SCORE) {
+                            setHasCompletedLesson(true);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching progress:', error);
+            }
+        };
+
+        fetchProgress();
+    }, []);
+
+    const saveProgress = useCallback(async (currentScore: number) => {
+        // Update high score locally
+        setHighScore((prev) => Math.max(prev || 0, currentScore));
+
+        console.log(`Saving progress with score ${currentScore}...`);
+
+        try {
+            const response = await fetch('/api/progress/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    lesson_slug: 'asl-numbers-0-9',
+                    completed: currentScore >= GOAL_SCORE,
+                    score: currentScore,
+                }),
+            });
+
+            if (response.ok) {
+                console.log('Progress saved successfully!');
+            } else {
+                console.error('Failed to save progress:', await response.text());
+            }
+        } catch (error) {
+            console.error('Error saving progress:', error);
+        }
+    }, []);
+
+    useEffect(() => {
+        // Mark as completed when score reaches goal for the first time
+        if (score >= GOAL_SCORE && !hasCompletedLesson) {
+            setHasCompletedLesson(true);
+        }
+
+        // Save progress every time score changes
+        if (score > 0) {
+            saveProgress(score);
+        }
+    }, [score, hasCompletedLesson, saveProgress]);
 
     useEffect(() => {
         startWebcam();
@@ -114,12 +234,16 @@ export default function ASLNumbersPage() {
                             // SUCCESS!
                             console.log('✅ Success! Held for long enough. Getting new number.');
                             justCompletedRef.current = true; // Lock to prevent duplicates
-                            
-                            firstCorrectDetectionTimeRef.current = null; 
+
+                            // Play success feedback
+                            playSuccessFeedback();
+
+                            firstCorrectDetectionTimeRef.current = null;
 
                             // Move to the next random number after a short delay
                             setTimeout(() => {
                                 console.log('Moving to next number');
+                                setScore(prevScore => prevScore + 1);
                                 generateRandomNumber(); // Call your existing function
                                 justCompletedRef.current = false; // Release the lock
                             }, 1000); // Wait 1 sec before changing
@@ -178,6 +302,12 @@ export default function ASLNumbersPage() {
         firstCorrectDetectionTimeRef.current = null;
     };
 
+    const resetScore = () => {
+        setScore(0);
+        generateRandomNumber();
+        setHasCompletedLesson(false);
+    };
+
     const toggleTracking = () => {
         setIsTracking(prev => !prev);
     };
@@ -186,9 +316,18 @@ export default function ASLNumbersPage() {
         // --- The rest of your JSX is perfect, no changes needed ---
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
-                <h1 className="text-3xl font-bold mb-2">ASL Numbers Practice (1-10)</h1>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.push('/dashboard')}
+                    className="mb-4"
+                >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Dashboard
+                </Button>
+                <h1 className="text-3xl font-bold mb-2">ASL Numbers Practice (0-9)</h1>
                 <p className="text-muted-foreground">
-                    Practice signing numbers 1 through 10. Try to match the number shown below!
+                    Practice signing numbers 0 through 9. Try to match the number shown below!
                 </p>
             </div>
 
@@ -243,6 +382,23 @@ export default function ASLNumbersPage() {
                         <CardHeader>
                             <CardTitle className="text-2xl font-semibold">Sign This Number</CardTitle>
                             <CardDescription>Use your webcam to sign the number shown below</CardDescription>
+                            <div className="text-right flex-shrink-0">
+                                <div className="text-sm font-medium text-muted-foreground">SCORE</div>
+                                <div className="text-3xl font-bold text-primary">
+                                    {score}
+                                </div>
+                                {highScore !== null && highScore > 0 && (
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                        High Score: {highScore}
+                                    </div>
+                                )}
+                                {hasCompletedLesson && (
+                                    <div className="flex items-center justify-end text-green-600 font-semibold text-sm mt-1">
+                                        <CheckCircle className="mr-1 h-4 w-4" />
+                                        Complete!
+                                    </div>
+                                )}
+                            </div>
                         </CardHeader>
                         <CardContent className="flex-1 flex flex-col items-center justify-center gap-6">
                             {currentNumber === null ? (

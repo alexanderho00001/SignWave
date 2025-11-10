@@ -33,10 +33,10 @@ const LESSONS = [
         description: 'Learn the ASL alphabet and practice fingerspelling.',
     },
     {
-        slug: 'asl-numbers-1-10',
-        title: 'Numbers 1–10',
+        slug: 'asl-numbers-0-9',
+        title: 'Numbers 0–9',
         link: '/lessons/asl-numbers',
-        description: 'Count from 1 to 10 using ASL.',
+        description: 'Count from 0 to 9 using ASL.',
     },
     {
         slug: 'asl-basic-words',
@@ -90,16 +90,37 @@ export default function LessonsPage() {
     const [joinError, setJoinError] = useState<string | null>(null);
 
     useEffect(() => {
-        // Progress tracking is currently not implemented in Next.js API routes
-        // For now, progress is stored locally or can be added later
-        // Set empty progress array - lessons will show as not completed
-        setProgress([]);
+        // Fetch user's progress from API
+        const fetchProgress = async () => {
+            try {
+                const response = await fetch('/api/progress');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && Array.isArray(data.data)) {
+                        // Map API data to ProgressItem format
+                        const progressItems: ProgressItem[] = data.data.map((item: any) => ({
+                            lesson_slug: item.lesson_slug,
+                            lesson_title: LESSONS.find((l) => l.slug === item.lesson_slug)?.title || item.lesson_slug,
+                            completed: item.completed,
+                            last_score: item.score,
+                        }));
+                        setProgress(progressItems);
+                    }
+                } else {
+                    console.error('Failed to fetch progress:', response.status);
+                    setProgress([]);
+                }
+            } catch (err) {
+                console.error('Error fetching progress:', err);
+                setProgress([]);
+            }
+        };
+
+        fetchProgress();
     }, []);
 
     async function markCompleted(slug: string) {
-        // Progress tracking is currently not implemented in Next.js API routes
-        // For now, update local state only
-        // TODO: Implement progress API route if needed
+        // Update local state optimistically
         setProgress((prev) =>
             prev.some((p) => p.lesson_slug === slug)
                 ? prev.map((p) =>

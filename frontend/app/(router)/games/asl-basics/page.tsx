@@ -12,6 +12,8 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { WORDS as BASIC_WORDS } from '@/lib/data/words';
+import { ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 
 const FALL_SPEED = 0.5; // pixels per frame
@@ -27,6 +29,7 @@ type FallingWord = {
 };
 
 export default function ASLBasicsGame() {
+    const router = useRouter();
     const [gameState, setGameState] = useState<'menu' | 'playing' | 'paused' | 'gameover'>('menu');
     const [fallingWords, setFallingWords] = useState<FallingWord[]>([]);
     const [score, setScore] = useState(0);
@@ -304,6 +307,15 @@ export default function ASLBasicsGame() {
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.push('/dashboard')}
+                    className="mb-4"
+                >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Dashboard
+                </Button>
                 <h1 className="text-3xl font-bold mb-2">ASL Basic Words Game</h1>
                 <p className="text-muted-foreground">
                     Sign the falling words before they hit the bottom!

@@ -3,9 +3,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import Image from 'next/image';
+import { CheckCircle, ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import confetti from 'canvas-confetti';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const REQUIRED_HOLD_DURATION = 50;
+const GOAL_SCORE = 10;
 
 // Generate a random letter
 const getRandomLetter = () => {
@@ -15,12 +20,16 @@ const getRandomLetter = () => {
 
 
 export default function ASLAlphabetPage() {
+    const router = useRouter();
+    const [score, setScore] = useState(0);
+    const [highScore, setHighScore] = useState<number | null>(null);
     // Always initialize with empty string to ensure server and client render the same
     const [currentLetter, setCurrentLetter] = useState<string>('');
     const [detectedLetter, setDetectedLetter] = useState<string | null>(null);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [isTracking, setIsTracking] = useState(false);
     const [showAnswer, setShowAnswer] = useState(false);
+    const [hasCompletedLesson, setHasCompletedLesson] = useState(false);
 
 
     // Backend communication refs
@@ -29,6 +38,57 @@ export default function ASLAlphabetPage() {
     const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const firstCorrectDetectionTimeRef = useRef<number | null>(null);
     const justCompletedRef = useRef(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Initialize success sound
+    useEffect(() => {
+        // Try to load success sound, but create a fallback tone
+        audioRef.current = new Audio('/sounds/success.mp3');
+        audioRef.current.volume = 0.5;
+
+        // Handle load error by creating a Web Audio API tone
+        audioRef.current.onerror = () => {
+            console.log('Using Web Audio API fallback tone');
+        };
+    }, []);
+
+    // Success feedback with confetti and sound
+    const playSuccessFeedback = useCallback(() => {
+        // Play sound or fallback tone
+        if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(() => {
+                // Fallback: Create a simple ding sound with Web Audio API
+                try {
+                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    oscillator.frequency.value = 800;
+                    oscillator.type = 'sine';
+
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.3);
+                } catch (err) {
+                    console.log('Audio not available');
+                }
+            });
+        }
+
+        // Trigger confetti
+        confetti({
+            particleCount: 50,
+            spread: 60,
+            origin: { y: 0.6 },
+            colors: ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b']
+        });
+    }, []);
 
     // Set random letter after mount using async update to avoid synchronous setState warning
     useEffect(() => {
@@ -39,6 +99,29 @@ export default function ASLAlphabetPage() {
         }, 0);
 
         return () => clearTimeout(timer);
+    }, []);
+
+    // Fetch previous progress on mount
+    useEffect(() => {
+        const fetchProgress = async () => {
+            try {
+                const response = await fetch('/api/progress?lesson_slug=asl-alphabet');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.data.length > 0) {
+                        const lessonProgress = data.data[0];
+                        setHighScore(lessonProgress.score);
+                        if (lessonProgress.completed && lessonProgress.score >= GOAL_SCORE) {
+                            setHasCompletedLesson(true);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching progress:', error);
+            }
+        };
+
+        fetchProgress();
     }, []);
 
     // Start webcam
@@ -67,6 +150,47 @@ export default function ASLAlphabetPage() {
         };
     }, [startWebcam]);
 
+    const saveProgress = useCallback(async (currentScore: number) => {
+        // Update high score locally
+        setHighScore((prev) => Math.max(prev || 0, currentScore));
+
+        console.log(`Saving progress with score ${currentScore}...`);
+
+        try {
+            const response = await fetch('/api/progress/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    lesson_slug: 'asl-alphabet',
+                    completed: currentScore >= GOAL_SCORE,
+                    score: currentScore,
+                }),
+            });
+
+            if (response.ok) {
+                console.log('Progress saved successfully!');
+            } else {
+                console.error('Failed to save progress:', await response.text());
+            }
+        } catch (error) {
+            console.error('Error saving progress:', error);
+        }
+    }, []);
+
+    useEffect(() => {
+        // Mark as completed when score reaches goal for the first time
+        if (score >= GOAL_SCORE && !hasCompletedLesson) {
+            setHasCompletedLesson(true);
+        }
+
+        // Save progress every time score changes
+        if (score > 0) {
+            saveProgress(score);
+        }
+    }, [score, hasCompletedLesson, saveProgress]);
+
     const generateRandomLetter = useCallback(() => {
         const randomIndex = Math.floor(Math.random() * ALPHABET.length);
         setCurrentLetter(ALPHABET[randomIndex]);
@@ -76,6 +200,12 @@ export default function ASLAlphabetPage() {
         firstCorrectDetectionTimeRef.current = null;
         setShowAnswer(false);
     }, []);
+
+    const resetScore = () => {
+        setScore(0);
+        generateRandomLetter(); // Also get a new letter when resetting
+        setHasCompletedLesson(false);
+    };
 
     // Backend hand detection function
     const detectHandSign = useCallback(async () => {
@@ -140,6 +270,9 @@ export default function ASLAlphabetPage() {
                         if (durationHeld >= REQUIRED_HOLD_DURATION && !justCompletedRef.current) {
                             justCompletedRef.current = true;
 
+                            // Play success feedback
+                            playSuccessFeedback();
+
                             // Auto-advance to next letter after success
                             setTimeout(() => {
                                 generateRandomLetter();
@@ -147,6 +280,7 @@ export default function ASLAlphabetPage() {
                                 setDetectedLetter(null);
                                 justCompletedRef.current = false;
                                 firstCorrectDetectionTimeRef.current = null;
+                                setScore(prevScore => prevScore + 1);
                                 setShowAnswer(false);
                             }, 1500);
                         }
@@ -213,6 +347,15 @@ export default function ASLAlphabetPage() {
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.push('/dashboard')}
+                    className="mb-4"
+                >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Dashboard
+                </Button>
                 <h1 className="text-3xl font-bold mb-2">ASL Alphabet Practice</h1>
                 <p className="text-muted-foreground">
                     Practice signing the alphabet letters. Try to match the letter shown below!
@@ -268,6 +411,23 @@ export default function ASLAlphabetPage() {
                         <CardHeader>
                             <CardTitle className="text-2xl font-semibold">Sign This Letter</CardTitle>
                             <CardDescription>Use your webcam to sign the letter shown below</CardDescription>
+                            <div className="text-right flex-shrink-0">
+                                <div className="text-sm font-medium text-muted-foreground">SCORE</div>
+                                <div className="text-3xl font-bold text-primary">
+                                    {score}
+                                </div>
+                                {highScore !== null && highScore > 0 && (
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                        High Score: {highScore}
+                                    </div>
+                                )}
+                                {hasCompletedLesson && (
+                                    <div className="flex items-center justify-end text-green-600 font-semibold text-sm mt-1">
+                                        <CheckCircle className="mr-1 h-4 w-4" />
+                                        Complete!
+                                    </div>
+                                )}
+                            </div>
                         </CardHeader>
                         <CardContent className="flex-1 flex flex-col items-center justify-center gap-6">
                             {!currentLetter ? (

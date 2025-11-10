@@ -13,6 +13,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Room } from '@/lib/types';
+import { ArrowLeft } from 'lucide-react';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const NUMBERS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -555,6 +556,15 @@ export default function ASLCompetitionPage() {
 
     return (
         <div className="container mx-auto p-4 space-y-6">
+            <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.push('/dashboard')}
+                className="mb-2"
+            >
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to Dashboard
+            </Button>
             {/* Room Info and Scores */}
             <Card>
                 <CardHeader>

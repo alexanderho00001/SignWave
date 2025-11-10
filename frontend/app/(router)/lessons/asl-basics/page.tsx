@@ -5,8 +5,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { WORDS } from '@/lib/data/words';
 import { ASLVisualization } from '@/components/ASLVisualization';
+import { ArrowLeft, CheckCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import confetti from 'canvas-confetti';
 
 const REQUIRED_HOLD_DURATION = 500; // ms (kept but not used for completion now)
+const GOAL_SCORE = 10;
 
 const getRandomWord = () => {
     const randomIndex = Math.floor(Math.random() * WORDS.length);
@@ -14,6 +18,7 @@ const getRandomWord = () => {
 };
 
 export default function ASLBasicWordsPage() {
+    const router = useRouter();
     const [currentWord, setCurrentWord] = useState<string>('');
     const [detectedWord, setDetectedWord] = useState<string | null>(null);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
@@ -22,12 +27,63 @@ export default function ASLBasicWordsPage() {
     const [framesLeft, setFramesLeft] = useState(0);
     const [countdown, setCountdown] = useState(3); // 🔢 3 → 2 → 1 indicator
     const [showVisualization, setShowVisualization] = useState(false);
+    const [score, setScore] = useState(0);
+    const [highScore, setHighScore] = useState<number | null>(null);
+    const [hasCompletedLesson, setHasCompletedLesson] = useState(false);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const firstCorrectDetectionTimeRef = useRef<number | null>(null);
     const justCompletedRef = useRef(false);
     const framesSinceResetRef = useRef(0); // how many frames we've sent for current word
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Initialize success sound
+    useEffect(() => {
+        audioRef.current = new Audio('/sounds/success.mp3');
+        audioRef.current.volume = 0.5;
+        audioRef.current.onerror = () => {
+            console.log('Using Web Audio API fallback tone');
+        };
+    }, []);
+
+    // Success feedback with confetti and sound
+    const playSuccessFeedback = useCallback(() => {
+        // Play sound or fallback tone
+        if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(() => {
+                // Fallback: Create a simple ding sound with Web Audio API
+                try {
+                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    oscillator.frequency.value = 800;
+                    oscillator.type = 'sine';
+
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.3);
+                } catch (err) {
+                    console.log('Audio not available');
+                }
+            });
+        }
+
+        // Trigger confetti
+        confetti({
+            particleCount: 50,
+            spread: 60,
+            origin: { y: 0.6 },
+            colors: ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b']
+        });
+    }, []);
 
     // Clear the displayed word when the frame counter hits 0
     useEffect(() => {
@@ -47,6 +103,70 @@ export default function ASLBasicWordsPage() {
         }, 0);
         return () => clearTimeout(timer);
     }, []);
+
+    // Fetch previous progress on mount
+    useEffect(() => {
+        const fetchProgress = async () => {
+            try {
+                const response = await fetch('/api/progress?lesson_slug=asl-basic-words');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.data.length > 0) {
+                        const lessonProgress = data.data[0];
+                        setHighScore(lessonProgress.score);
+                        if (lessonProgress.completed && lessonProgress.score >= GOAL_SCORE) {
+                            setHasCompletedLesson(true);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching progress:', error);
+            }
+        };
+
+        fetchProgress();
+    }, []);
+
+    const saveProgress = useCallback(async (currentScore: number) => {
+        // Update high score locally
+        setHighScore((prev) => Math.max(prev || 0, currentScore));
+
+        console.log(`Saving progress with score ${currentScore}...`);
+
+        try {
+            const response = await fetch('/api/progress/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    lesson_slug: 'asl-basic-words',
+                    completed: currentScore >= GOAL_SCORE,
+                    score: currentScore,
+                }),
+            });
+
+            if (response.ok) {
+                console.log('Progress saved successfully!');
+            } else {
+                console.error('Failed to save progress:', await response.text());
+            }
+        } catch (error) {
+            console.error('Error saving progress:', error);
+        }
+    }, []);
+
+    useEffect(() => {
+        // Mark as completed when score reaches goal for the first time
+        if (score >= GOAL_SCORE && !hasCompletedLesson) {
+            setHasCompletedLesson(true);
+        }
+
+        // Save progress every time score changes
+        if (score > 0) {
+            saveProgress(score);
+        }
+    }, [score, hasCompletedLesson, saveProgress]);
 
     // Start webcam
     const startWebcam = useCallback(async () => {
@@ -174,8 +294,12 @@ export default function ASLBasicWordsPage() {
                 justCompletedRef.current = true;
                 setIsCorrect(true);
 
+                // Play success feedback
+                playSuccessFeedback();
+
                 // Move to next word after a brief pause so user sees green state
                 setTimeout(() => {
+                    setScore(prevScore => prevScore + 1);
                     generateRandomWord();
                     setIsCorrect(null);
                     setDetectedWord(null);
@@ -246,6 +370,15 @@ export default function ASLBasicWordsPage() {
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.push('/dashboard')}
+                    className="mb-4"
+                >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Dashboard
+                </Button>
                 <h1 className="text-3xl font-bold mb-2">ASL Basic Words Practice</h1>
                 <p className="text-muted-foreground">
                     Practice signing basic ASL words. Try to match the word shown below!
@@ -314,6 +447,23 @@ export default function ASLBasicWordsPage() {
                             <CardDescription>
                                 Use your webcam to sign the word shown below
                             </CardDescription>
+                            <div className="text-right flex-shrink-0">
+                                <div className="text-sm font-medium text-muted-foreground">SCORE</div>
+                                <div className="text-3xl font-bold text-primary">
+                                    {score}
+                                </div>
+                                {highScore !== null && highScore > 0 && (
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                        High Score: {highScore}
+                                    </div>
+                                )}
+                                {hasCompletedLesson && (
+                                    <div className="flex items-center justify-end text-green-600 font-semibold text-sm mt-1">
+                                        <CheckCircle className="mr-1 h-4 w-4" />
+                                        Complete!
+                                    </div>
+                                )}
+                            </div>
                         </CardHeader>
                         <CardContent className="flex-1 flex flex-col items-center justify-center gap-6">
                             {!currentWord ? (
