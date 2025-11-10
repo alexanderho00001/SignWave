@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/dialog';
 import { InlineMath } from 'react-katex';
 import 'katex/dist/katex.min.css';
+import { ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 const TOTAL_ROUNDS = 5;
 const TIME_PER_ROUND = 30; // seconds
@@ -22,9 +24,9 @@ type Problem = {
     answer: number;
 };
 
-// Generate basic arithmetic problems with answers 1-10
+// Generate basic arithmetic problems with answers 0-9
 const generateProblem = (): Problem => {
-    const answer = Math.floor(Math.random() * 10) + 1; // Random answer between 1-10
+    const answer = Math.floor(Math.random() * 10); // Random answer between 0-9
 
     // Generate different types of arithmetic problems
     const problemTypes: Problem[] = [];
@@ -81,6 +83,7 @@ const generateProblem = (): Problem => {
 };
 
 export default function ASLNumbersGame() {
+    const router = useRouter();
     const [gameState, setGameState] = useState<'menu' | 'playing' | 'paused' | 'gameover'>('menu');
     const [currentRound, setCurrentRound] = useState(1);
     const [currentProblem, setCurrentProblem] = useState<Problem | null>(null);
@@ -306,6 +309,15 @@ export default function ASLNumbersGame() {
     return (
         <div className="container mx-auto px-4 py-8 max-w-7xl">
             <div className="mb-6">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.push('/dashboard')}
+                    className="mb-4"
+                >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Dashboard
+                </Button>
                 <h1 className="text-3xl font-bold mb-2">ASL Numbers Game</h1>
                 <p className="text-muted-foreground">Solve arithmetic problems by signing the answer!</p>
             </div>
