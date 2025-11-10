@@ -21,39 +21,81 @@ Progress Tracking: Automatically saves learning progress for continuous developm
 https://docs.google.com/presentation/d/1WiH7RLNqYsvKz_j57tKsCj6MxtciMwE06PnfUDERmio/edit?usp=sharing
 
 # How It Works
-!. Clone the repository
-Clone the repository into your local device
-2. cd SignWave
-Go into the repository
-3. python3 -m venv venv
-Create a virtual environment
-4. source venv/bin/activate
-Activate that virtual environment
-5. cd backend
-Go into the backend
-6. pip install -r requirements.txt
-Install the requirements
-7. python3 manage.py runserver
-Start the backend server
-8. Open a new terminal
-Open a brand new terminal
-9. cd SignWave
-Go into the repository
-10. source venv/bin/activate
-Activate a virtual environment
-11. cd frontend
-Go into the frontend
-12. npm i
-Install the frontend packages
-13. npm run dev
-Start the frontend server
-14. Open on local host
-Open the server in your browser
 
 Open the website and allow webcam access, and choose a lesson to begin learning ASL. 
 Follow the on-screen prompt and perform hand signs. 
 Use the "Reveal Answer" button if you do not know the sign. 
 Play games with others to test your skill.
+
+### Local Setup Guide
+
+1. Clone the repository
+   ```bash
+   git clone <your-repo-url>
+   ```
+
+2. Go into the repository
+   ```bash
+   cd SignWave
+   ```
+
+3. Create a virtual environment
+   ```bash
+   python3 -m venv venv
+   ```
+
+4. Activate the virtual environment
+   ```bash
+   source venv/bin/activate
+   ```
+
+5. Go into the backend
+   ```bash
+   cd backend
+   ```
+
+6. Install the backend requirements
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+7. Start the backend server
+   ```bash
+   python3 manage.py runserver
+   ```
+
+8. Open a new terminal window
+
+9. Go into the repository again
+   ```bash
+   cd SignWave
+   ```
+
+10. Activate the virtual environment
+    ```bash
+    source venv/bin/activate
+    ```
+
+11. Go into the frontend
+    ```bash
+    cd frontend
+    ```
+
+12. Install frontend dependencies
+    ```bash
+    npm i
+    ```
+
+13. Start the frontend server
+    ```bash
+    npm run dev
+    ```
+
+14. Open the app in your browser
+    Visit → http://localhost:3000
+
+---
+
 
 # Credits
 
