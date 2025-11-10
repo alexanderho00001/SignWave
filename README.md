@@ -1,5 +1,4 @@
-# nh2025
-SignWave – Learn ASL with AI
+# SignWave – Learn ASL with AI
 
 natHACKS 2025 Submission
 Team: The She-Coders With A He
