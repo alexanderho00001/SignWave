@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-const REQUIRED_HOLD_DURATION = 500; // milliseconds
+const REQUIRED_HOLD_DURATION = 50;
 
 // Generate a random letter
 const getRandomLetter = () => {
