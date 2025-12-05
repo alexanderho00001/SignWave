@@ -25,27 +25,42 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Ensure we're on the client side
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Check if user is already authenticated and redirect
   useEffect(() => {
-    const checkAuth = () => {
-      // Check localStorage for userId
-      const userId = localStorage.getItem('userId');
-      
-      // Check cookie for user data (non-httpOnly cookie)
-      const cookies = document.cookie.split(';');
-      const userCookie = cookies.find(cookie => cookie.trim().startsWith('_signwave_user='));
-      
-      if (userId || userCookie) {
-        // User is authenticated, redirect to dashboard
-        router.push('/dashboard');
-      } else {
+    if (!isMounted) return;
+
+    const checkAuth = async () => {
+      try {
+        // Check localStorage for userId
+        const userId = localStorage.getItem('userId');
+
+        // Check cookie for user data (non-httpOnly cookie)
+        const cookies = document.cookie.split(';');
+        const userCookie = cookies.find(cookie => cookie.trim().startsWith('_signwave_user='));
+
+        if (userId || userCookie) {
+          // User is authenticated, redirect to dashboard
+          router.push('/dashboard');
+          return;
+        }
+
+        setCheckingAuth(false);
+      } catch (error) {
+        // If localStorage is not available (e.g., server-side), just show login
+        console.error('Error checking auth:', error);
         setCheckingAuth(false);
       }
     };
 
     checkAuth();
-  }, [router]);
+  }, [router, isMounted]);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const { name, value } = e.target;
